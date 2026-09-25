@@ -87,10 +87,19 @@
   border-top: 1px solid var(--line);
 }
 
+/* Rows share one grid: the name column grows to the longest name (never
+   narrower than its minimum), so every key starts at the same x. */
+.klist {
+  display: grid;
+  grid-template-columns: minmax(180px, max-content) minmax(0, 1fr) auto;
+}
+
 .krow {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 14px;
+  column-gap: 14px;
   padding: 8px 10px 8px 12px;
   cursor: pointer;
 }
@@ -104,7 +113,7 @@
 }
 
 .krow-label {
-  width: 200px;
+  width: 100%;
   height: 28px;
   border-color: transparent;
   background: transparent;
@@ -146,6 +155,33 @@
   line-height: 1.6;
   color: var(--fg-1);
   overflow-x: auto;
+}
+
+.connect-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px 0;
+}
+
+.connect-file {
+  display: flex;
+  gap: 16px;
+}
+
+.connect-file .mono:first-child {
+  min-width: 190px;
+  color: var(--fg-1);
+}
+
+.connect-actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.connect-actions + .code {
+  border-top: 1px solid var(--line);
 }
 
 .connect-note {

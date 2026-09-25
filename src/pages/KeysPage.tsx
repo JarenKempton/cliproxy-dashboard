@@ -2,6 +2,7 @@ import { Copy, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ConfirmDialog, copyText, PageHead, Segmented, toast } from '../components/ui'
 import { listApiKeys, putApiKeys } from '../lib/api'
+import { CHANGED_FILES, setupCommand, undoCommand, type Tool } from '../lib/connect'
 import { maskKey } from '../lib/format'
 
 // The proxy stores bare keys; names live in this browser until the dashboard
@@ -27,33 +28,32 @@ function endpoints(): [string, string][] {
   return out
 }
 
-type Tool = 'claude' | 'codex' | 'env'
+type Tools = 'both' | 'claude' | 'codex'
+const TOOL_LIST: Record<Tools, Tool[]> = { both: ['claude', 'codex'], claude: ['claude'], codex: ['codex'] }
 
-function snippet(tool: Tool, base: string, key: string) {
-  if (tool === 'claude') {
-    return `// ~/.claude/settings.json
+// What the setup command writes, for doing it by hand.
+function manualSnippet(tools: Tool[], base: string, key: string) {
+  const parts = []
+  if (tools.includes('claude')) {
+    parts.push(`// ~/.claude/settings.json  (merge into "env")
 {
   "env": {
     "ANTHROPIC_BASE_URL": "${base}",
     "ANTHROPIC_AUTH_TOKEN": "${key}"
   }
-}`
+}`)
   }
-  if (tool === 'codex') {
-    return `# ~/.codex/config.toml
+  if (tools.includes('codex')) {
+    parts.push(`# ~/.codex/config.toml
 model_provider = "cliproxy"
 
 [model_providers.cliproxy]
 name = "CLIProxy"
 base_url = "${base}/v1"
 wire_api = "responses"
-experimental_bearer_token = "${key}"`
+experimental_bearer_token = "${key}"`)
   }
-  return `# Shell (any tool that reads these)
-export ANTHROPIC_BASE_URL="${base}"
-export ANTHROPIC_AUTH_TOKEN="${key}"
-export OPENAI_BASE_URL="${base}/v1"
-export OPENAI_API_KEY="${key}"`
+  return parts.join('\n\n')
 }
 
 export function KeysPage() {
@@ -63,7 +63,9 @@ export function KeysPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [base, setBase] = useState(() => endpoints().at(-1)![0])
-  const [tool, setTool] = useState<Tool>('claude')
+  const [tools, setTools] = useState<Tools>('both')
+  const [mode, setMode] = useState<'command' | 'manual'>('command')
+  const [showScript, setShowScript] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -130,6 +132,7 @@ export function KeysPage() {
               <input
                 className="input krow-label"
                 placeholder="Name (e.g. laptop)"
+                size={Math.max(18, (labels[k] ?? '').length + 2)}
                 value={labels[k] ?? ''}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setLabel(k, e.target.value)}
@@ -183,23 +186,62 @@ export function KeysPage() {
           <div className="panel connect">
             <div className="connect-controls">
               <Segmented
-                value={tool}
-                onChange={setTool}
+                value={tools}
+                onChange={setTools}
                 options={[
+                  ['both', 'Claude Code + Codex'],
                   ['claude', 'Claude Code'],
                   ['codex', 'Codex'],
-                  ['env', 'Shell env'],
                 ]}
               />
               <Segmented value={base} onChange={setBase} options={endpoints()} />
-              <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => copyText(snippet(tool, base, active), 'Snippet copied')}>
-                <Copy size={14} /> Copy
-              </button>
+              <Segmented
+                value={mode}
+                onChange={setMode}
+                options={[
+                  ['command', 'Command'],
+                  ['manual', 'Manual'],
+                ]}
+              />
             </div>
-            <pre className="code">{snippet(tool, base, revealed === active ? active : maskKey(active))}</pre>
-            <p className="faint connect-note">
-              Copy includes the full key. A one-line installer that edits these files for you (with backup and undo) comes next.
-            </p>
+            {mode === 'command' ? (
+              <>
+                <div className="connect-files">
+                  {TOOL_LIST[tools].map((t) => (
+                    <div key={t} className="connect-file">
+                      <span className="mono">{CHANGED_FILES[t].path}</span>
+                      <span className="mono faint">{CHANGED_FILES[t].what}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="connect-actions">
+                  <button className="btn btn-primary" onClick={() => copyText(setupCommand(base, active, TOOL_LIST[tools]), 'Setup command copied')}>
+                    <Copy size={14} /> Copy setup command
+                  </button>
+                  <button className="btn" onClick={() => copyText(undoCommand(TOOL_LIST[tools]), 'Undo command copied')}>
+                    <Copy size={14} /> Copy undo
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => setShowScript(!showScript)}>
+                    {showScript ? 'Hide script' : 'View script'}
+                  </button>
+                </div>
+                {showScript && <pre className="code">{setupCommand(base, revealed === active ? active : maskKey(active), TOOL_LIST[tools])}</pre>}
+                <p className="faint connect-note">
+                  Paste into a terminal on the machine you’re connecting, from any folder. The first run backs up each file; undo
+                  restores it.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="connect-actions">
+                  <button className="btn" onClick={() => copyText(manualSnippet(TOOL_LIST[tools], base, active), 'Snippet copied')}>
+                    <Copy size={14} /> Copy
+                  </button>
+                </div>
+                <pre className="code">{manualSnippet(TOOL_LIST[tools], base, revealed === active ? active : maskKey(active))}</pre>
+                <p className="faint connect-note">Copy includes the full key.</p>
+              </>
+            )}
           </div>
         </section>
       )}
