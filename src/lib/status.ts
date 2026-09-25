@@ -1,6 +1,7 @@
 import type { AuthFile } from './api'
-import type { Status } from './components/StatusIcon'
-import { formatWhen } from './format'
+import { formatRelative } from './format'
+
+export type Tone = 'good' | 'warn' | 'bad' | 'off'
 
 // status_message is often a raw upstream JSON error body.
 function friendlyMessage(raw?: string): string | undefined {
@@ -16,14 +17,14 @@ function friendlyMessage(raw?: string): string | undefined {
   return raw
 }
 
-export function accountStatus(f: AuthFile, now: number): { status: Status; text: string } {
-  if (f.disabled) return { status: 'neutral', text: 'Off' }
+export function accountStatus(f: AuthFile, now: number): { tone: Tone; text: string } {
+  if (f.disabled) return { tone: 'off', text: 'Off' }
   const message = friendlyMessage(f.status_message)
   const cooldown = (f.cooldowns ?? [])
     .map((c) => Date.parse(c.retry_at))
     .filter((t) => t > now)
     .sort((a, b) => b - a)[0]
-  if (cooldown) return { status: 'warning', text: `${message ?? 'Cooling down'} · back ${formatWhen(cooldown, now)}` }
-  if (f.unavailable || f.status === 'error') return { status: 'critical', text: message ?? 'Error' }
-  return { status: 'good', text: 'Active' }
+  if (cooldown) return { tone: 'warn', text: `${message ?? 'Cooling down'} · back ${formatRelative(cooldown, now)}` }
+  if (f.unavailable || f.status === 'error') return { tone: 'bad', text: message ?? 'Error' }
+  return { tone: 'good', text: 'Active' }
 }
