@@ -33,7 +33,7 @@ function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
         {paceMark !== null && pace.kind !== 'maxed' && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
       </div>
       <div className="qrow-meta mono">
-        <span className="faint">{w.resetAtMs ? `resets ${formatRelative(w.resetAtMs, now)}` : 'idle'}</span>
+        <span className="faint">{w.resetAtMs ? `resets ${formatRelative(w.resetAtMs, now)}` : 'not started'}</span>
         {pace.kind === 'short' && <span className="warn-text">out {formatStamp(pace.runsOutAtMs)}</span>}
       </div>
     </div>
