@@ -95,7 +95,7 @@ export function QuotaCard({ file }: { file: AuthFile }) {
         )}
       </div>
 
-      {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} />}
+      {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} id={file.auth_index} />}
 
       <footer className="qcard-foot">
         {/* Only say something when the account isn't simply working. */}

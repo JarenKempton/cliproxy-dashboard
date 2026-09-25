@@ -170,11 +170,19 @@
   stroke: var(--line-strong);
 }
 
-.col-ok {
-  fill: color-mix(in oklch, var(--accent) 55%, transparent);
+.dotfill-ok {
+  fill: color-mix(in oklch, var(--accent) 40%, transparent);
 }
 
-.col-bad {
+.dotfill-bad {
+  fill: color-mix(in oklch, var(--bad) 55%, transparent);
+}
+
+.cap-ok {
+  fill: var(--accent);
+}
+
+.cap-bad {
   fill: var(--bad);
 }
 
