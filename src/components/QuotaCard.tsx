@@ -68,7 +68,11 @@ export function QuotaCard({ file }: { file: AuthFile }) {
         <span className="qcard-name" title={accountName(file)}>
           {accountName(file)}
         </span>
-        {state?.quota?.plan && <span className="tag">{state.quota.plan}</span>}
+        {state?.quota?.plan && (
+          <span className="tag" title={provider === 'codex' ? `OpenAI plan_type: ${state.quota.plan}` : 'From the Anthropic account profile'}>
+            {state.quota.plan}
+          </span>
+        )}
         <Switch
           on={!file.disabled}
           label={`${file.disabled ? 'Turn on' : 'Turn off'} ${accountName(file)}`}
@@ -91,16 +95,16 @@ export function QuotaCard({ file }: { file: AuthFile }) {
         )}
       </div>
 
-      {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} id={file.auth_index} />}
+      {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} />}
 
       <footer className="qcard-foot">
-        <span className={`dot ${status.tone}`} />
-        <span className="qcard-status" title={status.text}>
-          {status.text}
+        {/* Only say something when the account isn't simply working. */}
+        <span className={`qcard-status ${status.tone}`} title={status.text}>
+          {status.tone === 'good' || status.tone === 'off' ? '' : status.text}
         </span>
         {state?.at && (
           <span className="mono faint" title={`Quota read at ${formatStamp(state.at)}`}>
-            {formatAgo(state.at, now)}
+            read {formatAgo(state.at, now)}
           </span>
         )}
         {!file.disabled && (

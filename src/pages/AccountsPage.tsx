@@ -145,9 +145,8 @@ function AccountRow({ file, onRemove }: { file: AuthFile; onRemove: (f: AuthFile
           {PROVIDER_NAMES[provider]} · {file.name}
         </div>
       </div>
-      <div className="arow-status">
-        <span className={`dot ${status.tone}`} />
-        <span title={status.text}>{status.text}</span>
+      <div className={`arow-status ${status.tone}`} title={status.text}>
+        {status.tone === 'warn' || status.tone === 'bad' ? status.text : ''}
       </div>
       <div className="mono faint arow-stat" title="Requests since the proxy started">
         {file.success ?? 0} ok · {file.failed ?? 0} failed

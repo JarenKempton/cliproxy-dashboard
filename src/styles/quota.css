@@ -73,14 +73,13 @@
   color: var(--bad);
 }
 
-/* Dot-matrix meter: dotted track, dotted fill in the level color, a solid
-   cap at the fill's end, and a hairline tick where an even pace would be. */
+/* Card meter: plain solid bar; a hairline tick marks the even-pace point. */
 .dbar {
   --c: var(--accent);
   position: relative;
-  height: 8px;
-  background-image: radial-gradient(circle, var(--line) var(--dot), transparent var(--dot-edge));
-  background-size: var(--dot-grid) var(--dot-grid);
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-active);
 }
 
 .dbar.warn {
@@ -93,9 +92,8 @@
 
 .dbar-fill {
   height: 100%;
-  background-image: radial-gradient(circle, color-mix(in oklch, var(--c) 55%, transparent) var(--dot), transparent var(--dot-edge));
-  background-size: var(--dot-grid) var(--dot-grid);
-  box-shadow: inset -2px 0 0 var(--c);
+  border-radius: 2px;
+  background: var(--c);
 }
 
 .dbar-pace {
@@ -172,19 +170,11 @@
   stroke: var(--line-strong);
 }
 
-.dotfill-ok {
-  fill: color-mix(in oklch, var(--accent) 40%, transparent);
+.col-ok {
+  fill: color-mix(in oklch, var(--accent) 55%, transparent);
 }
 
-.dotfill-bad {
-  fill: color-mix(in oklch, var(--bad) 55%, transparent);
-}
-
-.cap-ok {
-  fill: var(--accent);
-}
-
-.cap-bad {
+.col-bad {
   fill: var(--bad);
 }
 
@@ -214,6 +204,14 @@
   border-top: 1px solid var(--line);
   font-size: 12px;
   color: var(--fg-2);
+}
+
+.qcard-status.warn {
+  color: var(--warn);
+}
+
+.qcard-status.bad {
+  color: var(--bad);
 }
 
 .qcard-status {

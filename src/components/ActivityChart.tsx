@@ -1,4 +1,4 @@
-// Dot-matrix column chart of an account's requests in 10-minute buckets
+// Column chart of an account's requests in 10-minute buckets
 // (the proxy keeps the last 20, about 3 hours).
 
 import { useEffect, useRef, useState } from 'react'
@@ -20,7 +20,7 @@ function useWidth<T extends HTMLElement>() {
   return [ref, width] as const
 }
 
-export function ActivityChart({ buckets, id }: { buckets: Bucket[]; id: string }) {
+export function ActivityChart({ buckets }: { buckets: Bucket[] }) {
   const [ref, width] = useWidth<HTMLDivElement>()
   const max = Math.max(1, ...buckets.map((b) => b.success + b.failed))
   const total = buckets.reduce((n, b) => n + b.success, 0)
@@ -33,14 +33,6 @@ export function ActivityChart({ buckets, id }: { buckets: Bucket[]; id: string }
       <div className="activity-plot" ref={ref}>
         {width > 0 && (
           <svg width={width} height={HEIGHT} role="img" aria-label={`${total} requests, ${failed} failed, in the last 3 hours`}>
-            <defs>
-              <pattern id={`ok-${id}`} width="3" height="3" patternUnits="userSpaceOnUse">
-                <circle cx="1.5" cy="1.5" r="0.45" className="dotfill-ok" />
-              </pattern>
-              <pattern id={`bad-${id}`} width="3" height="3" patternUnits="userSpaceOnUse">
-                <circle cx="1.5" cy="1.5" r="0.45" className="dotfill-bad" />
-              </pattern>
-            </defs>
             <line x1={0} x2={width} y1={HEIGHT - 0.5} y2={HEIGHT - 0.5} className="activity-base" />
             {buckets.map((b, i) => {
               const x = i * (barW + GAP)
@@ -53,14 +45,12 @@ export function ActivityChart({ buckets, id }: { buckets: Bucket[]; id: string }
                   <rect x={x} y={0} width={barW} height={HEIGHT} fill="transparent" />
                   {okH > 0 && (
                     <>
-                      <rect x={x} y={HEIGHT - okH} width={barW} height={okH} fill={`url(#ok-${id})`} />
-                      <rect x={x} y={HEIGHT - okH} width={barW} height={1} className="cap-ok" />
+                      <rect x={x} y={HEIGHT - okH} width={barW} height={okH} rx={1} className="col-ok" />
                     </>
                   )}
                   {badH > 0 && (
                     <>
-                      <rect x={x} y={HEIGHT - okH - badH} width={barW} height={badH} fill={`url(#bad-${id})`} />
-                      <rect x={x} y={HEIGHT - okH - badH} width={barW} height={1} className="cap-bad" />
+                      <rect x={x} y={HEIGHT - okH - badH} width={barW} height={badH} rx={1} className="col-bad" />
                     </>
                   )}
                 </g>

@@ -62,10 +62,18 @@
   font-size: 13px;
 }
 
-.arow-status span:last-child {
+.arow-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.arow-status.warn {
+  color: var(--warn);
+}
+
+.arow-status.bad {
+  color: var(--bad);
 }
 
 .arow-stat {
