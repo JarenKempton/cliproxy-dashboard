@@ -184,6 +184,49 @@
   border-top: 1px solid var(--line);
 }
 
+.connect-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--fg-1);
+}
+
+.cmd code b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.cmd.subtle {
+  border-color: var(--line);
+}
+
+.cmd.subtle code {
+  color: var(--fg-2);
+}
+
+.cmd-meta {
+  font-size: 11px;
+  margin: -2px 0 6px 2px;
+}
+
 .connect-note {
   margin: 0;
   padding: 10px 16px;

@@ -1,5 +1,5 @@
-// Generates a paste-anywhere shell command that points Claude Code and/or
-// Codex at the proxy by editing their per-user config files in place.
+// Shell scripts that point Claude Code and/or Codex at the proxy by editing
+// their per-user config files in place.
 //
 // - Works from any directory: paths are resolved from $HOME.
 // - The first run backs up every file it touches (next to the original, as
@@ -13,8 +13,6 @@ export type Tool = 'claude' | 'codex'
 
 const CLAUDE_FILE = '"$HOME/.claude/settings.json"'
 const CODEX_FILE = '"$HOME/.codex/config.toml"'
-
-const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 // Same transforms in both engines. Claude: set env.ANTHROPIC_BASE_URL and
 // env.ANTHROPIC_AUTH_TOKEN. Codex: drop any old [model_providers.cliproxy]
@@ -88,17 +86,10 @@ if 'codex' in tools:
     out += ['', '[model_providers.cliproxy]', 'name = "CLIProxy"', 'base_url = ' + json.dumps(url + '/v1'), 'wire_api = "responses"', 'experimental_bearer_token = ' + json.dumps(key), '']
     write(p, '\\n'.join(out))`
 
-function files(tools: Tool[]) {
-  return [tools.includes('claude') && CLAUDE_FILE, tools.includes('codex') && CODEX_FILE].filter(Boolean) as string[]
-}
-
-export function setupCommand(url: string, key: string, tools: Tool[]): string {
-  const list = files(tools).join(' ')
-  return `# CLIProxy: point ${tools.map((t) => (t === 'claude' ? 'Claude Code' : 'Codex')).join(' + ')} at ${url}
-(
-set -e
-export CLIPROXY_URL=${sq(url)} CLIPROXY_KEY=${sq(key)} CLIPROXY_TOOLS=${sq(tools.join(' '))}
-for f in ${list}; do
+// Backs up (first run only) and edits the files for $CLIPROXY_TOOLS, using
+// $CLIPROXY_URL and $CLIPROXY_KEY. Shared by the served script and tests.
+const APPLY = `for t in $CLIPROXY_TOOLS; do
+  case "$t" in claude) f=${CLAUDE_FILE};; codex) f=${CODEX_FILE};; *) continue;; esac
   [ -e "$f.cliproxy-backup" ] || [ -e "$f.cliproxy-backup.absent" ] && continue
   if [ -f "$f" ]; then cp "$f" "$f.cliproxy-backup"; else mkdir -p "$(dirname "$f")"; : > "$f.cliproxy-backup.absent"; fi
 done
@@ -110,13 +101,41 @@ else
 python3 - <<'CLIPROXY_PY'
 ${PYTHON}
 CLIPROXY_PY
-fi
-echo "CLIProxy connected. Backups saved next to: ${files(tools).map((f) => f.replace(/"/g, '').replace('$HOME', '~')).join(', ')}"
-)`
+fi`
+
+// Served at <dashboard>/connect. Run as: curl -fsSL <url> | sh -s -- CODE
+// The code is single-use and short-lived; the script trades it for the proxy
+// address and key, so the key never appears in the command or shell history.
+export function connectScript(dashboardOrigin: string): string {
+  return `#!/bin/sh
+# CLIProxy connect: points Claude Code and/or Codex on this machine at the proxy.
+# Edits ~/.claude/settings.json and ~/.codex/config.toml, backing each up first.
+# Undo: curl -fsSL ${dashboardOrigin}/connect/undo | sh
+set -e
+code="\${1:-}"
+[ -n "$code" ] || { echo "Missing setup code. Copy the full command from the dashboard." >&2; exit 1; }
+resp=$(curl -fs "${dashboardOrigin}/connect/claim/$code") || { echo "That setup code is invalid, expired, or already used. Make a new one in the dashboard." >&2; exit 1; }
+field() { printf '%s\\n' "$resp" | sed -n "s/^$1=//p"; }
+CLIPROXY_URL=$(field url) CLIPROXY_KEY=$(field key) CLIPROXY_TOOLS=$(field tools)
+export CLIPROXY_URL CLIPROXY_KEY CLIPROXY_TOOLS
+${APPLY}
+for t in $CLIPROXY_TOOLS; do
+  case "$t" in claude) echo "✓ Claude Code → $CLIPROXY_URL";; codex) echo "✓ Codex → $CLIPROXY_URL";; esac
+done
+echo "Restart any open Claude Code or Codex sessions to pick this up."
+`
 }
 
-export function undoCommand(tools: Tool[]): string {
-  return `for f in ${files(tools).join(' ')}; do if [ -f "$f.cliproxy-backup" ]; then mv "$f.cliproxy-backup" "$f"; echo "restored $f"; elif [ -f "$f.cliproxy-backup.absent" ]; then rm -f "$f" "$f.cliproxy-backup.absent"; echo "removed $f"; fi; done`
+// Served at <dashboard>/connect/undo: restores the original files.
+export function undoScript(): string {
+  return `#!/bin/sh
+# CLIProxy disconnect: restores the files the connect script backed up.
+for f in ${CLAUDE_FILE} ${CODEX_FILE}; do
+  if [ -f "$f.cliproxy-backup" ]; then mv "$f.cliproxy-backup" "$f"; echo "restored $f"
+  elif [ -f "$f.cliproxy-backup.absent" ]; then rm -f "$f" "$f.cliproxy-backup.absent"; echo "removed $f"
+  fi
+done
+`
 }
 
 export const CHANGED_FILES: Record<Tool, { path: string; what: string }> = {

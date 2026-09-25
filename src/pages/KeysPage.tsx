@@ -2,7 +2,8 @@ import { Copy, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ConfirmDialog, copyText, PageHead, Segmented, toast } from '../components/ui'
 import { listApiKeys, putApiKeys } from '../lib/api'
-import { CHANGED_FILES, setupCommand, undoCommand, type Tool } from '../lib/connect'
+import { CHANGED_FILES, type Tool } from '../lib/connect'
+import { formatRelative } from '../lib/format'
 import { maskKey } from '../lib/format'
 
 // The proxy stores bare keys; names live in this browser until the dashboard
@@ -65,7 +66,35 @@ export function KeysPage() {
   const [base, setBase] = useState(() => endpoints().at(-1)![0])
   const [tools, setTools] = useState<Tools>('both')
   const [mode, setMode] = useState<'command' | 'manual'>('command')
-  const [showScript, setShowScript] = useState(false)
+  const [setup, setSetup] = useState<{ code: string; expires: number; origin: string } | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  // A code is minted for one key/tools/address; changing any of them voids it.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSetup(null)
+  }, [selected, tools, base])
+
+  useEffect(() => {
+    if (!setup) return
+    const t = setInterval(() => setNow(Date.now()), 15e3)
+    return () => clearInterval(t)
+  }, [setup])
+
+  const createSetup = async (key: string) => {
+    try {
+      const res = await fetch('/connect/codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, url: base, tools: TOOL_LIST[tools] }),
+      })
+      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? `HTTP ${res.status}`)
+      setSetup(await res.json())
+      setNow(Date.now())
+    } catch (err) {
+      toast(`Couldn’t create setup command: ${(err as Error).message}`)
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -214,21 +243,46 @@ export function KeysPage() {
                     </div>
                   ))}
                 </div>
-                <div className="connect-actions">
-                  <button className="btn btn-primary" onClick={() => copyText(setupCommand(base, active, TOOL_LIST[tools]), 'Setup command copied')}>
-                    <Copy size={14} /> Copy setup command
-                  </button>
-                  <button className="btn" onClick={() => copyText(undoCommand(TOOL_LIST[tools]), 'Undo command copied')}>
-                    <Copy size={14} /> Copy undo
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => setShowScript(!showScript)}>
-                    {showScript ? 'Hide script' : 'View script'}
-                  </button>
-                </div>
-                {showScript && <pre className="code">{setupCommand(base, revealed === active ? active : maskKey(active), TOOL_LIST[tools])}</pre>}
+                {!setup || setup.expires < now ? (
+                  <div className="connect-actions">
+                    <button className="btn btn-primary" onClick={() => createSetup(active)}>
+                      {setup ? 'Create a new setup command' : 'Create setup command'}
+                    </button>
+                    <a className="btn btn-ghost" href="/connect" target="_blank" rel="noopener">
+                      View script
+                    </a>
+                  </div>
+                ) : (
+                  <div className="connect-cmds">
+                    <div className="cmd">
+                      <code className="mono">
+                        curl -fsSL {setup.origin}/connect | sh -s -- <b>{setup.code}</b>
+                      </code>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => copyText(`curl -fsSL ${setup.origin}/connect | sh -s -- ${setup.code}`, 'Setup command copied')}
+                      >
+                        <Copy size={14} /> Copy
+                      </button>
+                    </div>
+                    <div className="cmd-meta mono faint">
+                      single-use · expires {formatRelative(setup.expires, now)} ·{' '}
+                      <a href="/connect" target="_blank" rel="noopener">
+                        view script
+                      </a>
+                    </div>
+                    <div className="cmd subtle">
+                      <code className="mono">curl -fsSL {setup.origin}/connect/undo | sh</code>
+                      <button className="btn btn-ghost" onClick={() => copyText(`curl -fsSL ${setup.origin}/connect/undo | sh`, 'Undo command copied')}>
+                        <Copy size={14} /> Copy undo
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <p className="faint connect-note">
-                  Paste into a terminal on the machine you’re connecting, from any folder. The first run backs up each file; undo
-                  restores it.
+                  {location.hostname.endsWith('.ts.net')
+                    ? 'Paste into a terminal on the machine you’re connecting. The first run backs up each file; undo restores it.'
+                    : 'Only this Mac can reach this address. Open the dashboard through its tailnet URL to connect other machines.'}
                 </p>
               </>
             ) : (
