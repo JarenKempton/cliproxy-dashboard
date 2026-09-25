@@ -157,7 +157,15 @@ function managementGuard(env: Record<string, string>, target: string, state: { l
           const hit = quotaCache.get(cacheKey)
           if (hit && Date.now() - hit.at < QUOTA_TTL_MS) return reply(200, hit.body)
           const blocked = quotaBlocked.get(cacheKey)
-          if (blocked && blocked.until > Date.now()) return reply(200, blocked.body)
+          if (blocked && blocked.until > Date.now()) {
+            // Replay the 429 with the time actually left, not the original wait.
+            const replay = json(blocked.body) ?? {}
+            const left = String(Math.ceil((blocked.until - Date.now()) / 1000))
+            const header = Object.fromEntries(
+              Object.entries((replay.header ?? {}) as Record<string, string[]>).filter(([k]) => k.toLowerCase() !== 'retry-after'),
+            )
+            return reply(200, JSON.stringify({ ...replay, header: { ...header, 'Retry-After': [left] } }))
+          }
         }
 
         // The body stream is consumed, so forward writes ourselves.

@@ -125,9 +125,9 @@
 
 .qerror {
   padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--warn) 30%, var(--line));
   border-radius: var(--radius);
-  border-left: 3px solid var(--warn);
-  background: color-mix(in oklch, var(--warn) 11%, var(--bg-card));
+  background: color-mix(in oklch, var(--warn) 5%, var(--bg-card));
 }
 
 .qerror-title {
@@ -135,47 +135,19 @@
   align-items: center;
   gap: 8px;
   color: var(--warn);
-  font-size: 14px;
   font-weight: 600;
 }
 
-.qerror-retry {
-  margin-left: auto;
-  padding: 1px 7px;
-  border: 1px solid color-mix(in oklch, var(--warn) 45%, transparent);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 400;
-  white-space: nowrap;
-}
-
 .qerror-msg {
-  margin: 6px 0 0;
-  color: var(--fg);
+  margin: 4px 0 0;
+  color: var(--fg-1);
   font-size: 13px;
 }
 
-.qerror details {
-  margin-top: 8px;
-}
-
-.qerror summary {
-  cursor: pointer;
+.qerror-meta {
+  margin: 8px 0 0;
   font-size: 11px;
-  list-style: none;
-}
-
-.qerror summary::before {
-  content: '▸ ';
-}
-
-.qerror details[open] summary::before {
-  content: '▾ ';
-}
-
-.qerror details p {
-  margin: 6px 0 0;
-  font-size: 12px;
+  color: var(--fg-3);
 }
 
 /* Activity ------------------------------------------------------------------- */

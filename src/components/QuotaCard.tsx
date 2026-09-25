@@ -41,19 +41,15 @@ function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
 }
 
 function ErrorBlock({ error, now, stale }: { error: QuotaError; now: number; stale: boolean }) {
+  const retry = error.retryAt && error.retryAt > now ? `retry ${formatRelative(error.retryAt, now)}` : null
   return (
-    <div className="qerror">
+    <div className="qerror" title={stale ? `${error.hint} Showing the last successful reading.` : error.hint}>
       <div className="qerror-title">
-        <AlertTriangle size={15} />
+        <AlertTriangle size={14} />
         {error.title}
-        {error.retryAt && error.retryAt > now && <span className="mono qerror-retry">retry {formatRelative(error.retryAt, now)}</span>}
       </div>
       {error.message && <p className="qerror-msg">{error.message}</p>}
-      <details>
-        <summary className="mono faint">{error.code}</summary>
-        <p className="muted">{error.hint}</p>
-        {stale && <p className="faint">Showing the last successful reading below.</p>}
-      </details>
+      <p className="qerror-meta mono">{[retry, error.code].filter(Boolean).join(' · ')}</p>
     </div>
   )
 }
