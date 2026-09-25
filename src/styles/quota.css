@@ -73,42 +73,155 @@
   color: var(--bad);
 }
 
-.qbar {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-active);
-  overflow: hidden;
+/* Dot-matrix meter: dotted track, dotted fill in the level color, a solid
+   cap at the fill's end, and a hairline tick where an even pace would be. */
+.dbar {
+  --c: var(--accent);
+  position: relative;
+  height: 10px;
+  background-image: radial-gradient(circle, var(--line-strong) 0.9px, transparent 1.2px);
+  background-size: 4px 4px;
 }
 
-.qbar-fill {
+.dbar.warn {
+  --c: var(--warn);
+}
+
+.dbar.bad {
+  --c: var(--bad);
+}
+
+.dbar-fill {
   height: 100%;
-  border-radius: 2px;
-  background: var(--accent);
+  background-image: radial-gradient(circle, var(--c) 1px, transparent 1.3px);
+  background-size: 4px 4px;
+  box-shadow: inset -2px 0 0 var(--c);
 }
 
-.qbar-fill.warn {
-  background: var(--warn);
-}
-
-.qbar-fill.bad {
-  background: var(--bad);
+.dbar-pace {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--fg-2);
 }
 
 .qrow-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-top: 6px;
+  justify-content: space-between;
+  margin-top: 5px;
   font-size: 11px;
-  color: var(--fg-2);
 }
 
-.pace {
-  color: var(--fg-3);
-}
-
-.pace.short {
+.warn-text {
   color: var(--warn);
+}
+
+/* Error ---------------------------------------------------------------------- */
+
+.qerror {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklch, var(--warn) 30%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--warn) 6%, transparent);
+}
+
+.qerror-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.qerror-title .mono {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.qerror details {
+  margin-top: 4px;
+}
+
+.qerror summary {
+  cursor: pointer;
+  font-size: 11px;
+  list-style: none;
+}
+
+.qerror summary::before {
+  content: '▸ ';
+}
+
+.qerror details[open] summary::before {
+  content: '▾ ';
+}
+
+.qerror p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.qerror-msg {
+  color: var(--fg-1);
+  font-size: 11px !important;
+}
+
+/* Activity ------------------------------------------------------------------- */
+
+.activity {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 16px 14px;
+}
+
+.activity-plot {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-plot svg {
+  display: block;
+}
+
+.activity-base {
+  stroke: var(--line-strong);
+}
+
+.dotfill-ok {
+  fill: var(--accent);
+}
+
+.dotfill-bad {
+  fill: var(--bad);
+}
+
+.cap-ok {
+  fill: var(--accent);
+}
+
+.cap-bad {
+  fill: var(--bad);
+}
+
+.activity-legend {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.activity-total {
+  color: var(--fg);
+  font-size: 15px;
+}
+
+.activity-failed {
+  color: var(--bad);
 }
 
 .qcard-foot {
@@ -262,14 +375,16 @@
 }
 
 .tl-bar.live {
-  border: 1px solid color-mix(in oklch, var(--lane) 70%, transparent);
-  background: color-mix(in oklch, var(--lane) 10%, var(--bg-card));
+  border: 1px solid color-mix(in oklch, var(--lane) 60%, transparent);
+  background: var(--bg-card);
 }
 
 .tl-bar-used {
   position: absolute;
   inset: 0 auto 0 0;
-  background: color-mix(in oklch, var(--lane) 38%, var(--bg-card));
+  background-image: radial-gradient(circle, var(--lane) 1px, transparent 1.3px);
+  background-size: 4px 4px;
+  box-shadow: inset -2px 0 0 var(--lane);
 }
 
 .tl-bar.next {
@@ -277,8 +392,9 @@
 }
 
 .tl-bar.past {
-  background: var(--bg-raised);
   border: 1px solid var(--line);
+  background-image: radial-gradient(circle, var(--line-strong) 0.7px, transparent 1px);
+  background-size: 3px 3px;
 }
 
 .tl-bar-label {
@@ -290,6 +406,10 @@
 }
 
 .tl-bar.live .tl-bar-label {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-card);
   color: var(--fg);
 }
 
@@ -346,7 +466,8 @@
 
 .lg.live {
   border: 1px solid var(--fg-2);
-  background: linear-gradient(to right, var(--fg-3) 50%, transparent 50%);
+  background: radial-gradient(circle, var(--fg-2) 0.7px, transparent 1px);
+  background-size: 3px 3px;
 }
 
 .lg.next {
@@ -354,8 +475,9 @@
 }
 
 .lg.past {
-  background: var(--bg-raised);
   border: 1px solid var(--line);
+  background: radial-gradient(circle, var(--line-strong) 0.7px, transparent 1px);
+  background-size: 3px 3px;
 }
 
 .lg.now {

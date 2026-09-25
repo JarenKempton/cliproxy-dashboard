@@ -41,6 +41,31 @@ async function request(method: string, path: string, opts: Options = {}): Promis
   return parsed
 }
 
+// A non-2xx answer from the upstream provider, relayed by /api-call.
+export class UpstreamError extends Error {
+  status: number
+  type?: string
+  detail?: string
+  retryAfterMs?: number
+  constructor(status: number, body: unknown, headers: Record<string, string[]> | undefined) {
+    const err = (body as { error?: { type?: string; message?: string } | string; detail?: unknown; message?: string }) ?? {}
+    const inner = typeof err.error === 'object' ? err.error : undefined
+    const detail =
+      inner?.message ??
+      (typeof err.error === 'string' ? err.error : undefined) ??
+      (typeof err.detail === 'string' ? err.detail : typeof err.detail === 'object' ? (err.detail as { message?: string })?.message : undefined) ??
+      err.message ??
+      (typeof body === 'string' && body.length < 300 ? body : undefined)
+    super(detail ?? `Upstream returned ${status}`)
+    this.status = status
+    this.type = inner?.type
+    this.detail = detail
+    const retry = Object.entries(headers ?? {}).find(([k]) => k.toLowerCase() === 'retry-after')?.[1]?.[0]
+    const seconds = retry ? Number(retry) : NaN
+    if (Number.isFinite(seconds)) this.retryAfterMs = seconds * 1000
+  }
+}
+
 const q = (params: Record<string, string>) => `?${new URLSearchParams(params)}`
 
 // --- Accounts ---------------------------------------------------------------
@@ -62,6 +87,7 @@ export type AuthFile = {
   last_refresh?: string
   success?: number
   failed?: number
+  recent_requests?: { time: string; success: number; failed: number }[]
   cooldowns?: { scope: string; reason: string; retry_at: string; model_key?: string }[]
   id_token?: { chatgpt_account_id?: string; plan_type?: string }
 }
@@ -81,6 +107,7 @@ export async function upstreamGet(authIndex: string, url: string, header: Record
   const res = (await request('POST', '/api-call', { body: { authIndex, method: 'GET', url, header } })) as {
     status_code: number
     body: unknown
+    header?: Record<string, string[]>
   }
   let body = res.body
   if (typeof body === 'string') {
@@ -91,7 +118,7 @@ export async function upstreamGet(authIndex: string, url: string, header: Record
     }
   }
   if (res.status_code < 200 || res.status_code >= 300) {
-    throw new ApiError(res.status_code, `Upstream returned ${res.status_code}`, false)
+    throw new UpstreamError(res.status_code, body, res.header)
   }
   return body
 }

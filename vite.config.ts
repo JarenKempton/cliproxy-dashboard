@@ -103,6 +103,7 @@ const WRITE_RULES: Rule[] = [
 // failed refresh (e.g. 429) falls back to the last good response.
 const QUOTA_TTL_MS = 90e3
 const quotaCache = new Map<string, { at: number; body: string }>()
+const quotaBlocked = new Map<string, { until: number; body: string }>()
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -155,6 +156,8 @@ function managementGuard(env: Record<string, string>, target: string, state: { l
           cacheKey = `${v.authIndex ?? v.auth_index}|${v.url}`
           const hit = quotaCache.get(cacheKey)
           if (hit && Date.now() - hit.at < QUOTA_TTL_MS) return reply(200, hit.body)
+          const blocked = quotaBlocked.get(cacheKey)
+          if (blocked && blocked.until > Date.now()) return reply(200, blocked.body)
         }
 
         // The body stream is consumed, so forward writes ourselves.
@@ -175,7 +178,12 @@ function managementGuard(env: Record<string, string>, target: string, state: { l
           if (cacheKey && upstream.ok) {
             const status = (json(text)?.status_code as number) ?? 0
             if (status >= 200 && status < 300) quotaCache.set(cacheKey, { at: Date.now(), body: text })
-            else if (quotaCache.has(cacheKey)) return reply(200, quotaCache.get(cacheKey)!.body)
+            else {
+              const headers = (json(text)?.header ?? {}) as Record<string, string[]>
+              const retry = Number(Object.entries(headers).find(([k]) => k.toLowerCase() === 'retry-after')?.[1]?.[0])
+              // Without Retry-After, back off 10 minutes anyway.
+              if (status === 429) quotaBlocked.set(cacheKey, { until: Date.now() + (Number.isFinite(retry) ? retry : 600) * 1000, body: text })
+            }
           }
           reply(upstream.status, text, upstream.headers.get('content-type') ?? 'application/json')
         } catch (err) {

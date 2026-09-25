@@ -1,45 +1,59 @@
-import { RotateCw } from 'lucide-react'
+import { AlertTriangle, RotateCw } from 'lucide-react'
 import type { AuthFile } from '../lib/api'
+import type { QuotaError } from '../lib/errors'
 import { formatAgo, formatRelative, formatStamp } from '../lib/format'
 import { paceOf } from '../lib/pace'
 import { PROVIDER_NAMES, providerOf, type QuotaWindow } from '../lib/quota'
 import { accountStatus } from '../lib/status'
 import { accountName, useStore } from '../lib/store'
+import { ActivityChart } from './ActivityChart'
 import { Switch } from './ui'
 
 function level(remaining: number) {
   return remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
 }
 
-function PaceNote({ w, now }: { w: QuotaWindow; now: number }) {
-  const pace = paceOf(w, now)
-  if (pace.kind === 'short') return <span className="pace short">runs out {formatStamp(pace.runsOutAtMs)}</span>
-  if (pace.kind === 'ok') return <span className="pace">on pace · ~{Math.round(100 - pace.projected)}% left at reset</span>
-  return null
-}
-
 function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
   const remaining = Math.max(0, Math.min(100, 100 - w.usedPercent))
+  const pace = paceOf(w, now)
+  // Where "remaining" would sit on an even burn; ahead of it means headroom.
+  const paceMark = w.resetAtMs ? 100 - Math.min(100, Math.max(0, ((now - (w.resetAtMs - w.periodMs)) / w.periodMs) * 100)) : null
+  const title = w.resetAtMs
+    ? `Resets ${formatStamp(w.resetAtMs)}${pace.kind === 'ok' ? ` · on pace, ~${Math.round(100 - pace.projected)}% left at reset` : ''}`
+    : 'Window not started'
+
   return (
-    <div className="qrow">
+    <div className="qrow" title={title}>
       <div className="qrow-head">
         <span>{w.label}</span>
         <span className={`mono qrow-value ${level(remaining)}`}>{Math.round(remaining)}%</span>
       </div>
-      <div className="qbar" role="meter" aria-label={`${w.label} remaining`} aria-valuenow={Math.round(remaining)} aria-valuemin={0} aria-valuemax={100}>
-        <div className={`qbar-fill ${level(remaining)}`} style={{ width: `${remaining}%` }} />
+      <div className={`dbar ${level(remaining)}`} role="meter" aria-label={`${w.label} remaining`} aria-valuenow={Math.round(remaining)} aria-valuemin={0} aria-valuemax={100}>
+        {remaining > 0 && <div className="dbar-fill" style={{ width: `${remaining}%` }} />}
+        {paceMark !== null && pace.kind !== 'maxed' && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
       </div>
       <div className="qrow-meta mono">
-        {w.resetAtMs ? (
-          <>
-            <span>resets {formatStamp(w.resetAtMs)}</span>
-            <span className="faint">{formatRelative(w.resetAtMs, now)}</span>
-          </>
-        ) : (
-          <span className="faint">not started</span>
-        )}
-        <PaceNote w={w} now={now} />
+        <span className="faint">{w.resetAtMs ? `↻ ${formatRelative(w.resetAtMs, now).replace('in ', '')}` : 'idle'}</span>
+        {pace.kind === 'short' && <span className="warn-text">out {formatStamp(pace.runsOutAtMs)}</span>}
       </div>
+    </div>
+  )
+}
+
+function ErrorBlock({ error, now, stale }: { error: QuotaError; now: number; stale: boolean }) {
+  return (
+    <div className="qerror">
+      <div className="qerror-title">
+        <AlertTriangle size={13} />
+        {error.title}
+        {error.retryAt && error.retryAt > now && <span className="mono faint">retry {formatRelative(error.retryAt, now)}</span>}
+      </div>
+      <details>
+        <summary className="mono faint">{error.code}</summary>
+        <p className="muted">{error.hint}</p>
+        {error.message && <p className="mono qerror-msg">“{error.message}”</p>}
+        {stale && <p className="faint">Showing the last successful reading below.</p>}
+      </details>
     </div>
   )
 }
@@ -69,24 +83,28 @@ export function QuotaCard({ file }: { file: AuthFile }) {
 
       <div className={state?.loading && windows.length ? 'qcard-body loading' : 'qcard-body'}>
         {file.disabled ? (
-          <p className="faint small-note">Off — turn on to check quota</p>
-        ) : state?.error && !windows.length ? (
-          <p className="error-text small-note">Couldn’t load quota · {state.error}</p>
-        ) : !windows.length ? (
-          <p className="faint small-note">{state?.loading ? 'Loading…' : 'No quota data'}</p>
+          <p className="faint small-note">Off</p>
         ) : (
-          windows.map((w) => <WindowRow key={w.id} w={w} now={now} />)
+          <>
+            {state?.error && <ErrorBlock error={state.error} now={now} stale={windows.length > 0} />}
+            {!state?.error && !windows.length && <p className="faint small-note">{state?.loading ? 'Loading…' : 'No quota data'}</p>}
+            {windows.map((w) => (
+              <WindowRow key={w.id} w={w} now={now} />
+            ))}
+          </>
         )}
       </div>
+
+      {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} id={file.auth_index} />}
 
       <footer className="qcard-foot">
         <span className={`dot ${status.tone}`} />
         <span className="qcard-status" title={status.text}>
           {status.text}
         </span>
-        {state?.error && windows.length > 0 && state.at && (
-          <span className="mono faint" title={`Refresh failed: ${state.error}`}>
-            as of {formatAgo(state.at, now)}
+        {state?.at && (
+          <span className="mono faint" title={`Quota read at ${formatStamp(state.at)}`}>
+            {formatAgo(state.at, now)}
           </span>
         )}
         {!file.disabled && (

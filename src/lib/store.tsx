@@ -1,7 +1,8 @@
 // Shared account + quota state for all pages, with background refresh.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, deleteAuthFile, listAuthFiles, setDisabled, type AuthFile } from './api'
+import { describeQuotaError, type QuotaError } from './errors'
 import { fetchQuota, providerOf, supportsQuota, type Quota } from './quota'
 
 const ACCOUNTS_EVERY_MS = 30e3
@@ -27,7 +28,7 @@ function saveCachedQuota(authIndex: string, quota: Quota, at: number) {
   }
 }
 
-export type QuotaState = { quota?: Quota; error?: string; loading: boolean; at?: number }
+export type QuotaState = { quota?: Quota; error?: QuotaError; loading: boolean; at?: number }
 
 type Store = {
   files: AuthFile[]
@@ -51,6 +52,10 @@ const isManaged = (f: AuthFile) => supportsQuota(f)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [files, setFiles] = useState<AuthFile[]>([])
   const [quotas, setQuotas] = useState<Record<string, QuotaState>>(loadCachedQuotas)
+  const quotasRef = useRef(quotas)
+  useEffect(() => {
+    quotasRef.current = quotas
+  }, [quotas])
   const [fatal, setFatal] = useState<ApiError | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState<Set<string>>(new Set())
@@ -73,6 +78,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refreshQuota = useCallback(async (f: AuthFile) => {
     // Off accounts aren't refreshed by the proxy, so their tokens can't be used.
     if (f.disabled) return
+    // Honour the provider's Retry-After instead of asking again early.
+    const retryAt = quotasRef.current[f.auth_index]?.error?.retryAt
+    if (retryAt && retryAt > Date.now()) return
     setQuotas((prev) => ({ ...prev, [f.auth_index]: { ...prev[f.auth_index], loading: true } }))
     try {
       const quota = await fetchQuota(f)
@@ -83,7 +91,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Keep the last good reading on screen; just flag the failure.
       setQuotas((prev) => ({
         ...prev,
-        [f.auth_index]: { ...prev[f.auth_index], error: (err as Error).message, loading: false },
+        [f.auth_index]: { ...prev[f.auth_index], error: describeQuotaError(err, providerOf(f)), loading: false },
       }))
     }
   }, [])

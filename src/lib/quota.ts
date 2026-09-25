@@ -81,16 +81,30 @@ function claudePlan(p: ClaudeProfile): string | undefined {
   return undefined
 }
 
-async function claudeQuota(f: AuthFile): Promise<Quota> {
-  const [usage, profile] = await Promise.allSettled([
-    upstreamGet(f.auth_index, 'https://api.anthropic.com/api/oauth/usage', CLAUDE_HEADERS),
-    upstreamGet(f.auth_index, 'https://api.anthropic.com/api/oauth/profile', CLAUDE_HEADERS),
-  ])
-  if (usage.status === 'rejected') throw usage.reason
-  return {
-    windows: claudeWindows(usage.value as ClaudeUsage),
-    plan: profile.status === 'fulfilled' ? claudePlan(profile.value as ClaudeProfile) : undefined,
+// The plan rarely changes and the usage endpoints rate-limit hard, so the
+// profile lookup (only used for the plan badge) runs at most once a day.
+const PLAN_TTL_MS = 86400e3
+
+async function claudePlanCached(f: AuthFile): Promise<string | undefined> {
+  const key = `cpa:plan:${f.auth_index}`
+  try {
+    const hit = JSON.parse(localStorage.getItem(key) ?? 'null') as { plan: string; at: number } | null
+    if (hit && Date.now() - hit.at < PLAN_TTL_MS) return hit.plan
+  } catch {
+    // ignore a corrupt entry
   }
+  try {
+    const plan = claudePlan((await upstreamGet(f.auth_index, 'https://api.anthropic.com/api/oauth/profile', CLAUDE_HEADERS)) as ClaudeProfile)
+    if (plan) localStorage.setItem(key, JSON.stringify({ plan, at: Date.now() }))
+    return plan
+  } catch {
+    return undefined
+  }
+}
+
+async function claudeQuota(f: AuthFile): Promise<Quota> {
+  const usage = (await upstreamGet(f.auth_index, 'https://api.anthropic.com/api/oauth/usage', CLAUDE_HEADERS)) as ClaudeUsage
+  return { windows: claudeWindows(usage), plan: await claudePlanCached(f) }
 }
 
 // --- Codex ----------------------------------------------------------------
