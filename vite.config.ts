@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
-import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
 
 // Dev-only bridge to the live CLIProxyAPI management API.
@@ -102,8 +102,21 @@ const WRITE_RULES: Rule[] = [
 // multiple windows don't trip the upstream usage endpoints' rate limits. A
 // failed refresh (e.g. 429) falls back to the last good response.
 const QUOTA_TTL_MS = 90e3
+// Persisted so a dev-server restart doesn't forget a provider's Retry-After.
+const QUOTA_STATE_FILE = '.backups/quota-state.json'
 const quotaCache = new Map<string, { at: number; body: string }>()
 const quotaBlocked = new Map<string, { until: number; body: string }>()
+try {
+  const saved = JSON.parse(readFileSync(QUOTA_STATE_FILE, 'utf8'))
+  for (const [k, v] of saved.cache ?? []) quotaCache.set(k, v)
+  for (const [k, v] of saved.blocked ?? []) quotaBlocked.set(k, v)
+} catch {
+  // first run
+}
+function saveQuotaState() {
+  mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 })
+  writeFileSync(QUOTA_STATE_FILE, JSON.stringify({ cache: [...quotaCache], blocked: [...quotaBlocked] }), { mode: 0o600 })
+}
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -192,6 +205,7 @@ function managementGuard(env: Record<string, string>, target: string, state: { l
               // Without Retry-After, back off 10 minutes anyway.
               if (status === 429) quotaBlocked.set(cacheKey, { until: Date.now() + (Number.isFinite(retry) ? retry : 600) * 1000, body: text })
             }
+            saveQuotaState()
           }
           reply(upstream.status, text, upstream.headers.get('content-type') ?? 'application/json')
         } catch (err) {

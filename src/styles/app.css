@@ -28,6 +28,11 @@
   --claude: oklch(0.72 0.13 45);
   --codex: oklch(0.72 0.12 285);
 
+  /* Dot-matrix fills: one fine grid everywhere. */
+  --dot: 0.45px;
+  --dot-edge: 0.85px;
+  --dot-grid: 3px;
+
   --radius: 6px;
   --radius-lg: 10px;
   --sans: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif;

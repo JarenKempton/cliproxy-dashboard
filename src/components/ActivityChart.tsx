@@ -35,10 +35,10 @@ export function ActivityChart({ buckets, id }: { buckets: Bucket[]; id: string }
           <svg width={width} height={HEIGHT} role="img" aria-label={`${total} requests, ${failed} failed, in the last 3 hours`}>
             <defs>
               <pattern id={`ok-${id}`} width="3" height="3" patternUnits="userSpaceOnUse">
-                <circle cx="1.5" cy="1.5" r="0.55" className="dotfill-ok" />
+                <circle cx="1.5" cy="1.5" r="0.45" className="dotfill-ok" />
               </pattern>
               <pattern id={`bad-${id}`} width="3" height="3" patternUnits="userSpaceOnUse">
-                <circle cx="1.5" cy="1.5" r="0.55" className="dotfill-bad" />
+                <circle cx="1.5" cy="1.5" r="0.45" className="dotfill-bad" />
               </pattern>
             </defs>
             <line x1={0} x2={width} y1={HEIGHT - 0.5} y2={HEIGHT - 0.5} className="activity-base" />

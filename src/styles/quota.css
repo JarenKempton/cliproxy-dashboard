@@ -78,9 +78,9 @@
 .dbar {
   --c: var(--accent);
   position: relative;
-  height: 10px;
-  background-image: radial-gradient(circle, var(--line-strong) 0.9px, transparent 1.2px);
-  background-size: 4px 4px;
+  height: 8px;
+  background-image: radial-gradient(circle, var(--line) var(--dot), transparent var(--dot-edge));
+  background-size: var(--dot-grid) var(--dot-grid);
 }
 
 .dbar.warn {
@@ -93,8 +93,8 @@
 
 .dbar-fill {
   height: 100%;
-  background-image: radial-gradient(circle, var(--c) 1px, transparent 1.3px);
-  background-size: 4px 4px;
+  background-image: radial-gradient(circle, color-mix(in oklch, var(--c) 55%, transparent) var(--dot), transparent var(--dot-edge));
+  background-size: var(--dot-grid) var(--dot-grid);
   box-shadow: inset -2px 0 0 var(--c);
 }
 
@@ -173,7 +173,7 @@
 }
 
 .dotfill-ok {
-  fill: color-mix(in oklch, var(--accent) 45%, transparent);
+  fill: color-mix(in oklch, var(--accent) 40%, transparent);
 }
 
 .dotfill-bad {
@@ -393,8 +393,8 @@
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: 2px 0 0 2px;
-  background-image: radial-gradient(circle, color-mix(in oklch, var(--c) 75%, transparent) 0.9px, transparent 1.2px);
-  background-size: 4px 4px;
+  background-image: radial-gradient(circle, color-mix(in oklch, var(--c) 50%, transparent) var(--dot), transparent var(--dot-edge));
+  background-size: var(--dot-grid) var(--dot-grid);
   box-shadow: inset -2px 0 0 var(--c);
 }
 
@@ -404,8 +404,8 @@
 
 .tl-bar.past {
   border: 1px solid var(--line);
-  background-image: radial-gradient(circle, var(--line-strong) 0.7px, transparent 1px);
-  background-size: 3px 3px;
+  background-image: radial-gradient(circle, var(--line) var(--dot), transparent var(--dot-edge));
+  background-size: var(--dot-grid) var(--dot-grid);
 }
 
 .tl-bar:not(.live) {
@@ -482,8 +482,8 @@
 
 .lg.live {
   border: 1px solid var(--line-strong);
-  background: radial-gradient(circle, var(--accent) 0.7px, transparent 1px);
-  background-size: 3px 3px;
+  background: radial-gradient(circle, color-mix(in oklch, var(--accent) 55%, transparent) var(--dot), transparent var(--dot-edge));
+  background-size: var(--dot-grid) var(--dot-grid);
 }
 
 .lg.next {
