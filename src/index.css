@@ -1,0 +1,157 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --text: #1a1a1a;
+  --muted: #6b6b6b;
+  --border: #e4e4e4;
+  --accent: #2f6fed;
+  --ok: #1f9d55;
+  --bad: #d64545;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111213;
+    --panel: #1a1b1d;
+    --text: #e8e8e8;
+    --muted: #8a8a8a;
+    --border: #2a2b2e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+nav {
+  border-right: 1px solid var(--border);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brand {
+  font-weight: 600;
+  padding: 0 8px 12px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.nav-item.active {
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.nav-link {
+  flex: 1;
+  text-align: left;
+  padding: 7px 8px;
+}
+
+.chip {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.chip:hover {
+  opacity: 1;
+}
+
+.chip.keep.on {
+  color: #fff;
+  background: var(--ok);
+  opacity: 1;
+}
+
+.chip.kill.on {
+  color: #fff;
+  background: var(--bad);
+  opacity: 1;
+}
+
+.summary {
+  margin-top: auto;
+  padding: 12px 8px 0;
+  font-size: 12px;
+}
+
+main {
+  padding: 24px 32px;
+  max-width: 1100px;
+}
+
+h2 {
+  margin: 0 0 4px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.endpoint {
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.endpoint-path {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.endpoint > .muted,
+.error {
+  padding: 12px;
+}
+
+.error {
+  color: var(--bad);
+}
+
+.error.guard {
+  color: var(--muted);
+}
+
+pre {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  max-height: 480px;
+  overflow: auto;
+}
