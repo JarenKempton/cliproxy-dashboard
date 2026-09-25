@@ -7,6 +7,7 @@ import { Segmented } from './ui'
 
 const DAY_FMT = new Intl.DateTimeFormat([], { weekday: 'short' })
 const pad = (n: number) => String(n).padStart(2, '0')
+const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6
 
 export function Timeline() {
   const { files, quotas, now } = useStore()
@@ -70,7 +71,7 @@ export function Timeline() {
           <div className="tl-label eyebrow">Account</div>
           <div className="tl-days">
             {days.map((d) => (
-              <div key={d.getTime()} className={d.getTime() === today ? 'tl-day today' : 'tl-day'}>
+              <div key={d.getTime()} className={['tl-day', d.getTime() === today && 'today', isWeekend(d) && 'weekend'].filter(Boolean).join(' ')}>
                 <span className="eyebrow">{DAY_FMT.format(d)}</span>
                 <span className="mono">
                   {pad(d.getMonth() + 1)}/{pad(d.getDate())}
@@ -80,12 +81,19 @@ export function Timeline() {
           </div>
         </div>
 
+        {/* Weekend shading behind every lane. */}
+        <div className="tl-weekends" aria-hidden="true">
+          {days.map((d, i) =>
+            isWeekend(d) ? <div key={i} style={{ left: `${(i / span.days) * 100}%`, width: `${100 / span.days}%` }} /> : null,
+          )}
+        </div>
+
         {lanes.length === 0 && <div className="tl-empty faint">No active account has a {mode === 'weekly' ? 'weekly' : '5-hour'} window to show.</div>}
 
         {lanes.map(({ f, windows, w, bars }) => {
           const provider = providerOf(f)
           return (
-            <div key={f.auth_index} className="tl-row" style={{ '--lane': `var(--${provider})` } as CSSProperties}>
+            <div key={f.auth_index} className="tl-row">
               <div className="tl-label">
                 <div className="tl-name">
                   <span className={`dot ${provider}`} />
@@ -102,10 +110,12 @@ export function Timeline() {
               <div className="tl-track">
                 {bars.map((b) => {
                   const remaining = b.used === null ? null : Math.max(0, 100 - b.used)
+                  // Same color language as the quota bars: fine, low, nearly out.
+                  const level = remaining === null ? '' : remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
                   return (
                     <div
                       key={b.startMs}
-                      className={`tl-bar ${b.state}`}
+                      className={`tl-bar ${b.state} ${level}`}
                       style={{ left: `${b.left}%`, width: `${b.width}%` }}
                       title={`${formatStamp(b.startMs)} → ${formatStamp(b.endMs)}`}
                     >

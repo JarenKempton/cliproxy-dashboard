@@ -44,14 +44,14 @@ function ErrorBlock({ error, now, stale }: { error: QuotaError; now: number; sta
   return (
     <div className="qerror">
       <div className="qerror-title">
-        <AlertTriangle size={13} />
+        <AlertTriangle size={15} />
         {error.title}
-        {error.retryAt && error.retryAt > now && <span className="mono faint">retry {formatRelative(error.retryAt, now)}</span>}
+        {error.retryAt && error.retryAt > now && <span className="mono qerror-retry">retry {formatRelative(error.retryAt, now)}</span>}
       </div>
+      {error.message && <p className="qerror-msg">{error.message}</p>}
       <details>
         <summary className="mono faint">{error.code}</summary>
         <p className="muted">{error.hint}</p>
-        {error.message && <p className="mono qerror-msg">“{error.message}”</p>}
         {stale && <p className="faint">Showing the last successful reading below.</p>}
       </details>
     </div>
@@ -66,7 +66,7 @@ export function QuotaCard({ file }: { file: AuthFile }) {
   const windows = state?.quota?.windows ?? []
 
   return (
-    <article className={file.disabled ? 'panel qcard off' : 'panel qcard'}>
+    <article className={['panel qcard', file.disabled && 'off', !file.disabled && state?.error && 'has-error'].filter(Boolean).join(' ')}>
       <header className="qcard-head">
         <span className={`dot ${provider}`} title={PROVIDER_NAMES[provider]} />
         <span className="qcard-name" title={accountName(file)}>

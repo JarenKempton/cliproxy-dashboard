@@ -9,10 +9,11 @@ export function formatStamp(ms: number): string {
 // "in 3h 12m", "in 2d 4h", "12m ago"
 export function formatRelative(ms: number, now = Date.now()): string {
   const diff = ms - now
-  const abs = Math.abs(diff)
-  const d = Math.floor(abs / 86400e3)
-  const h = Math.floor((abs % 86400e3) / 3600e3)
-  const m = Math.round((abs % 3600e3) / 60e3)
+  // Round once, then split, so 59.6 minutes never shows as "60m".
+  const mins = Math.round(Math.abs(diff) / 60e3)
+  const d = Math.floor(mins / 1440)
+  const h = Math.floor((mins % 1440) / 60)
+  const m = mins % 60
   const text = d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`
   return diff >= 0 ? `in ${text}` : `${text} ago`
 }

@@ -34,11 +34,11 @@ export function ActivityChart({ buckets, id }: { buckets: Bucket[]; id: string }
         {width > 0 && (
           <svg width={width} height={HEIGHT} role="img" aria-label={`${total} requests, ${failed} failed, in the last 3 hours`}>
             <defs>
-              <pattern id={`ok-${id}`} width="4" height="4" patternUnits="userSpaceOnUse">
-                <circle cx="2" cy="2" r="0.9" className="dotfill-ok" />
+              <pattern id={`ok-${id}`} width="3" height="3" patternUnits="userSpaceOnUse">
+                <circle cx="1.5" cy="1.5" r="0.55" className="dotfill-ok" />
               </pattern>
-              <pattern id={`bad-${id}`} width="4" height="4" patternUnits="userSpaceOnUse">
-                <circle cx="2" cy="2" r="0.9" className="dotfill-bad" />
+              <pattern id={`bad-${id}`} width="3" height="3" patternUnits="userSpaceOnUse">
+                <circle cx="1.5" cy="1.5" r="0.55" className="dotfill-bad" />
               </pattern>
             </defs>
             <line x1={0} x2={width} y1={HEIGHT - 0.5} y2={HEIGHT - 0.5} className="activity-base" />
@@ -54,13 +54,13 @@ export function ActivityChart({ buckets, id }: { buckets: Bucket[]; id: string }
                   {okH > 0 && (
                     <>
                       <rect x={x} y={HEIGHT - okH} width={barW} height={okH} fill={`url(#ok-${id})`} />
-                      <rect x={x} y={HEIGHT - okH} width={barW} height={1.5} className="cap-ok" />
+                      <rect x={x} y={HEIGHT - okH} width={barW} height={1} className="cap-ok" />
                     </>
                   )}
                   {badH > 0 && (
                     <>
                       <rect x={x} y={HEIGHT - okH - badH} width={barW} height={badH} fill={`url(#bad-${id})`} />
-                      <rect x={x} y={HEIGHT - okH - badH} width={barW} height={1.5} className="cap-bad" />
+                      <rect x={x} y={HEIGHT - okH - badH} width={barW} height={1} className="cap-bad" />
                     </>
                   )}
                 </g>

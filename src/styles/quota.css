@@ -119,30 +119,44 @@
 
 /* Error ---------------------------------------------------------------------- */
 
+.qcard.has-error {
+  border-color: color-mix(in oklch, var(--warn) 45%, var(--line));
+}
+
 .qerror {
-  padding: 10px 12px;
-  border: 1px solid color-mix(in oklch, var(--warn) 30%, var(--line));
+  padding: 12px 14px;
   border-radius: var(--radius);
-  background: color-mix(in oklch, var(--warn) 6%, transparent);
+  border-left: 3px solid var(--warn);
+  background: color-mix(in oklch, var(--warn) 11%, var(--bg-card));
 }
 
 .qerror-title {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: var(--warn);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.qerror-title .mono {
+.qerror-retry {
   margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in oklch, var(--warn) 45%, transparent);
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 400;
+  white-space: nowrap;
+}
+
+.qerror-msg {
+  margin: 6px 0 0;
+  color: var(--fg);
+  font-size: 13px;
 }
 
 .qerror details {
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .qerror summary {
@@ -159,14 +173,9 @@
   content: '▾ ';
 }
 
-.qerror p {
+.qerror details p {
   margin: 6px 0 0;
   font-size: 12px;
-}
-
-.qerror-msg {
-  color: var(--fg-1);
-  font-size: 11px !important;
 }
 
 /* Activity ------------------------------------------------------------------- */
@@ -192,11 +201,11 @@
 }
 
 .dotfill-ok {
-  fill: var(--accent);
+  fill: color-mix(in oklch, var(--accent) 45%, transparent);
 }
 
 .dotfill-bad {
-  fill: var(--bad);
+  fill: color-mix(in oklch, var(--bad) 55%, transparent);
 }
 
 .cap-ok {
@@ -216,8 +225,8 @@
 }
 
 .activity-total {
-  color: var(--fg);
-  font-size: 15px;
+  color: var(--fg-1);
+  font-size: 13px;
 }
 
 .activity-failed {
@@ -312,6 +321,27 @@
   font-size: 11px;
 }
 
+.tl-day.weekend {
+  color: var(--fg-3);
+}
+
+.tl-day.weekend .eyebrow {
+  color: oklch(0.42 0 0);
+}
+
+.tl-weekends {
+  position: absolute;
+  inset: 0 0 0 var(--label-w);
+  pointer-events: none;
+}
+
+.tl-weekends div {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: oklch(1 0 0 / 0.035);
+}
+
 .tl-day.today {
   color: var(--fg);
 }
@@ -352,21 +382,29 @@
 
 .tl-track {
   position: relative;
-  min-height: 64px;
+  min-height: 72px;
   /* Day gridlines behind the bars. */
   background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
   background-size: calc(100% / var(--days)) 100%;
 }
 
 .tl-bar {
+  --c: var(--accent);
   position: absolute;
   top: 50%;
-  height: 24px;
-  margin-top: -12px;
+  height: 20px;
+  margin-top: -4px;
   display: flex;
   align-items: center;
-  overflow: hidden;
-  border-radius: 4px;
+  border-radius: 3px;
+}
+
+.tl-bar.warn {
+  --c: var(--warn);
+}
+
+.tl-bar.bad {
+  --c: var(--bad);
 }
 
 /* Hairline gap between consecutive windows. */
@@ -375,16 +413,17 @@
 }
 
 .tl-bar.live {
-  border: 1px solid color-mix(in oklch, var(--lane) 60%, transparent);
+  border: 1px solid var(--line-strong);
   background: var(--bg-card);
 }
 
 .tl-bar-used {
   position: absolute;
   inset: 0 auto 0 0;
-  background-image: radial-gradient(circle, var(--lane) 1px, transparent 1.3px);
+  border-radius: 2px 0 0 2px;
+  background-image: radial-gradient(circle, color-mix(in oklch, var(--c) 75%, transparent) 0.9px, transparent 1.2px);
   background-size: 4px 4px;
-  box-shadow: inset -2px 0 0 var(--lane);
+  box-shadow: inset -2px 0 0 var(--c);
 }
 
 .tl-bar.next {
@@ -397,6 +436,10 @@
   background-size: 3px 3px;
 }
 
+.tl-bar:not(.live) {
+  overflow: hidden;
+}
+
 .tl-bar-label {
   position: relative;
   padding: 0 8px;
@@ -405,12 +448,13 @@
   color: var(--fg-3);
 }
 
+/* The live bar's label sits above it, so it never covers the fill. */
 .tl-bar.live .tl-bar-label {
-  margin-left: 4px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-card);
-  color: var(--fg);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  padding: 0;
+  color: var(--fg-1);
 }
 
 .tl-now-layer {
@@ -465,8 +509,8 @@
 }
 
 .lg.live {
-  border: 1px solid var(--fg-2);
-  background: radial-gradient(circle, var(--fg-2) 0.7px, transparent 1px);
+  border: 1px solid var(--line-strong);
+  background: radial-gradient(circle, var(--accent) 0.7px, transparent 1px);
   background-size: 3px 3px;
 }
 
@@ -476,8 +520,6 @@
 
 .lg.past {
   border: 1px solid var(--line);
-  background: radial-gradient(circle, var(--line-strong) 0.7px, transparent 1px);
-  background-size: 3px 3px;
 }
 
 .lg.now {
