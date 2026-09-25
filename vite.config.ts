@@ -107,6 +107,9 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1',
       port: 5173,
       strictPort: true,
+      // Extra hostnames a loopback reverse proxy may forward under,
+      // e.g. a `tailscale serve` name (tailnet-only).
+      allowedHosts: (env.CPA_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean),
       proxy: {
         [MANAGEMENT_PREFIX]: {
           target,
