@@ -1,104 +1,139 @@
-import { useEffect, useState } from 'react'
-import { ApiError, get } from './api'
-import { mask } from './mask'
-import { SECTIONS, type Section } from './sections'
+import { useCallback, useEffect, useState } from 'react'
+import { ApiError, listAuthFiles, setDisabled, type AuthFile } from './api'
+import { AccountCard, type QuotaState } from './components/AccountCard'
+import { formatAgo } from './format'
+import { pruneSamples, recordSample } from './history'
+import { fetchQuota, PROVIDER_NAMES, providerOf, supportsQuota } from './quota'
 
-type Verdict = 'keep' | 'kill' | undefined
-type Result = { ok: true; data: unknown } | { ok: false; error: ApiError | Error }
-
-const VERDICTS_KEY = 'cpa-dashboard:verdicts'
-
-function loadVerdicts(): Record<string, Verdict> {
-  try {
-    return JSON.parse(localStorage.getItem(VERDICTS_KEY) ?? '{}')
-  } catch {
-    return {}
-  }
-}
-
-function Endpoint({ path }: { path: string }) {
-  const [result, setResult] = useState<Result>()
-
-  useEffect(() => {
-    let cancelled = false
-    get(path)
-      .then((data) => !cancelled && setResult({ ok: true, data }))
-      .catch((error) => !cancelled && setResult({ ok: false, error }))
-    return () => {
-      cancelled = true
-    }
-  }, [path])
-
-  return (
-    <div className="endpoint">
-      <div className="endpoint-path">GET {path}</div>
-      {!result && <div className="muted">Loading…</div>}
-      {result && !result.ok && (
-        <div className={result.error instanceof ApiError && result.error.guard ? 'error guard' : 'error'}>
-          {result.error instanceof ApiError ? `${result.error.status}: ` : ''}
-          {result.error.message}
-        </div>
-      )}
-      {result?.ok && <pre>{typeof result.data === 'string' ? result.data : JSON.stringify(mask(result.data), null, 2)}</pre>}
-    </div>
-  )
-}
-
-function SectionView({ section }: { section: Section }) {
-  return (
-    <>
-      <h2>{section.title}</h2>
-      <p className="muted">{section.blurb}</p>
-      {section.endpoints.map((path) => (
-        <Endpoint key={path} path={path} />
-      ))}
-    </>
-  )
-}
+const ACCOUNTS_EVERY_MS = 30e3
+const QUOTA_EVERY_MS = 3 * 60e3
 
 export default function App() {
-  const [activeId, setActiveId] = useState(SECTIONS[0].id)
-  const [verdicts, setVerdicts] = useState(loadVerdicts)
-  const active = SECTIONS.find((s) => s.id === activeId) ?? SECTIONS[0]
+  const [files, setFiles] = useState<AuthFile[]>([])
+  const [quotas, setQuotas] = useState<Record<string, QuotaState>>({})
+  const [fatal, setFatal] = useState<ApiError | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
-  const setVerdict = (id: string, v: Verdict) => {
-    const next = { ...verdicts, [id]: verdicts[id] === v ? undefined : v }
-    setVerdicts(next)
-    localStorage.setItem(VERDICTS_KEY, JSON.stringify(next))
+  const loadAccounts = useCallback(async () => {
+    try {
+      const list = await listAuthFiles()
+      setFiles(list)
+      setFatal(null)
+      return list
+    } catch (err) {
+      if (err instanceof ApiError && (err.guard || err.status === 401)) setFatal(err)
+      return null
+    }
+  }, [])
+
+  const loadQuotas = useCallback(async (list: AuthFile[]) => {
+    // Off accounts aren't refreshed by the proxy, so their tokens can't be used.
+    const targets = list.filter((f) => supportsQuota(f) && !f.disabled)
+    setQuotas((prev) => {
+      const next = { ...prev }
+      for (const f of targets) next[f.auth_index] = { ...next[f.auth_index], loading: true }
+      return next
+    })
+    await Promise.all(
+      targets.map(async (f) => {
+        try {
+          const quota = await fetchQuota(f)
+          quota.windows.forEach((w) => recordSample(f.auth_index, w))
+          setQuotas((prev) => ({ ...prev, [f.auth_index]: { quota, loading: false } }))
+        } catch (err) {
+          // Keep the last good reading on screen; just flag the failure.
+          setQuotas((prev) => ({
+            ...prev,
+            [f.auth_index]: { ...prev[f.auth_index], error: (err as Error).message, loading: false },
+          }))
+        }
+      }),
+    )
+    setUpdatedAt(Date.now())
+  }, [])
+
+  const refreshAll = useCallback(async () => {
+    const list = await loadAccounts()
+    if (list) await loadQuotas(list)
+  }, [loadAccounts, loadQuotas])
+
+  useEffect(() => {
+    pruneSamples()
+    refreshAll()
+    const accounts = setInterval(loadAccounts, ACCOUNTS_EVERY_MS)
+    const quota = setInterval(refreshAll, QUOTA_EVERY_MS)
+    const clock = setInterval(() => setNow(Date.now()), 30e3)
+    return () => [accounts, quota, clock].forEach(clearInterval)
+  }, [loadAccounts, refreshAll])
+
+  const toggle = async (file: AuthFile) => {
+    const turningOff = !file.disabled
+    const provider = providerOf(file)
+    const othersOn = files.filter((f) => f !== file && providerOf(f) === provider && !f.disabled).length
+    if (turningOff && othersOn === 0) {
+      const name = PROVIDER_NAMES[provider] ?? provider
+      if (!window.confirm(`This is your last ${name} account that's on. Anything using ${name} through the proxy will stop working. Turn it off?`)) return
+    }
+    setBusy(file.auth_index)
+    setFiles((prev) => prev.map((f) => (f === file ? { ...f, disabled: turningOff } : f)))
+    try {
+      await setDisabled(file.name, turningOff)
+    } catch (err) {
+      window.alert(`Couldn’t ${turningOff ? 'turn off' : 'turn on'} the account: ${(err as Error).message}`)
+    } finally {
+      await loadAccounts()
+      setBusy(null)
+    }
   }
 
-  const kept = SECTIONS.filter((s) => verdicts[s.id] === 'keep').map((s) => s.title)
+  if (fatal) {
+    return (
+      <main className="page">
+        <h1>Can’t reach the proxy</h1>
+        <p className="muted">{fatal.message}</p>
+      </main>
+    )
+  }
+
+  const providers = [...new Set(files.map(providerOf))].sort((a, b) => (PROVIDER_NAMES[a] ? 0 : 1) - (PROVIDER_NAMES[b] ? 0 : 1))
 
   return (
-    <div className="layout">
-      <nav>
-        <div className="brand">CLIProxy · prototype</div>
-        {SECTIONS.map((s) => (
-          <div key={s.id} className={s.id === activeId ? 'nav-item active' : 'nav-item'}>
-            <button className="nav-link" onClick={() => setActiveId(s.id)}>
-              {s.title}
-            </button>
-            <button
-              className={verdicts[s.id] === 'keep' ? 'chip keep on' : 'chip keep'}
-              title="Keep"
-              onClick={() => setVerdict(s.id, 'keep')}
-            >
-              ✓
-            </button>
-            <button
-              className={verdicts[s.id] === 'kill' ? 'chip kill on' : 'chip kill'}
-              title="Kill"
-              onClick={() => setVerdict(s.id, 'kill')}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-        <div className="summary muted">Keeping: {kept.length ? kept.join(', ') : 'nothing yet'}</div>
-      </nav>
-      <main>
-        <SectionView key={active.id} section={active} />
-      </main>
-    </div>
+    <main className="page">
+      <header className="page-head">
+        <h1>Accounts</h1>
+        <div className="page-actions">
+          {updatedAt && <span className="muted small">Updated {formatAgo(updatedAt, now)}</span>}
+          <button className="button" onClick={refreshAll}>Refresh</button>
+        </div>
+      </header>
+
+      {providers.map((provider) => {
+        const group = files
+          .filter((f) => providerOf(f) === provider)
+          // Stable order, so a card never moves out from under a toggle.
+          .sort((a, b) => a.name.localeCompare(b.name))
+        const onCount = group.filter((f) => !f.disabled).length
+        return (
+          <section key={provider} className="provider">
+            <h2>
+              {PROVIDER_NAMES[provider] ?? provider}
+              <span className="muted"> · {onCount} of {group.length} on</span>
+            </h2>
+            {group.map((f) => (
+              <AccountCard
+                key={f.auth_index}
+                file={f}
+                quota={quotas[f.auth_index]}
+                now={now}
+                busy={busy === f.auth_index}
+                onToggle={toggle}
+              />
+            ))}
+          </section>
+        )
+      })}
+    </main>
   )
 }
