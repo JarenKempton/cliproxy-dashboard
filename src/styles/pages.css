@@ -100,7 +100,7 @@
 }
 
 .krow.selected {
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--bg-hover);
 }
 
 .krow-label {
