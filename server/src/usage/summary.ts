@@ -166,9 +166,15 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
   const tools = new Map<string, Totals>()
   const models = new Map<string, Totals & { tool: string; model: string }>()
   const accounts = new Map<string, Totals & { name: string }>()
+  type ModelTotals = Totals & { tool: string; model: string }
   const machinesByName = new Map<
     string,
-    Totals & { name: string; nameSource: 'custom' | 'tailscale' | null; identities: { kind: 'key' | 'ip'; value: string }[] }
+    Totals & {
+      name: string
+      nameSource: 'custom' | 'tailscale' | null
+      identities: { kind: 'key' | 'ip'; value: string }[]
+      models: Map<string, ModelTotals> // this machine's usage per model
+    }
   >()
   const series = new Map<number | string, Map<string, { costMicros: number; tokens: number }>>(
     window.keys.map((k) => [k, new Map()]),
@@ -180,8 +186,15 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
     addTo(getOr(models, `${g.tool}\u0000${g.model}`, () => ({ ...emptyTotals(), tool: g.tool, model: g.model })), g)
     addTo(getOr(accounts, g.account, () => ({ ...emptyTotals(), name: g.account })), g)
 
-    const m = getOr(machinesByName, g.name, () => ({ ...emptyTotals(), name: g.name, nameSource: g.nameSource, identities: [] }))
+    const m = getOr(machinesByName, g.name, () => ({
+      ...emptyTotals(),
+      name: g.name,
+      nameSource: g.nameSource,
+      identities: [],
+      models: new Map(),
+    }))
     addTo(m, g)
+    addTo(getOr(m.models, `${g.tool}\u0000${g.model}`, () => ({ ...emptyTotals(), tool: g.tool, model: g.model })), g)
     if (g.identityValue && !m.identities.some((i) => i.kind === g.identityKind && i.value === g.identityValue)) {
       m.identities.push({ kind: g.identityKind, value: g.identityValue })
     }
@@ -204,7 +217,9 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
     tools: [...tools].map(([name, t]) => ({ tool: name, sessions: sessionsOf.get(name) ?? 0, ...t })).sort(byCost),
     series: [...series].map(([key, byTool]) => ({ key, tools: Object.fromEntries(byTool) })),
     byModel: [...models.values()].sort(byCost),
-    byMachine: [...machinesByName.values()].sort(byCost),
+    byMachine: [...machinesByName.values()]
+      .map((m) => ({ ...m, models: [...m.models.values()].sort(byCost) }))
+      .sort(byCost),
     byAccount: [...accounts.values()].sort(byCost),
   }
 }

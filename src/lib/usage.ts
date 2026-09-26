@@ -20,6 +20,7 @@ export type MachineUsage = Totals & {
   name: string
   nameSource: 'custom' | 'tailscale' | null
   identities: { kind: 'key' | 'ip'; value: string }[]
+  models: ModelUsage[] // this machine's usage per model
 }
 export type AccountUsage = Totals & { name: string }
 

@@ -1,7 +1,7 @@
 // Usage: laid out like T3 Code's usage view (total, per-tool split, chart,
 // totals, breakdown), styled like the rest of this dashboard.
 
-import { Pencil, RotateCcw } from 'lucide-react'
+import { ChevronRight, Pencil, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ProviderMark } from '../components/ProviderMark'
 import { bucketLabel, UsageChart } from '../components/UsageChart'
@@ -192,6 +192,59 @@ function MachineName({ machine, onChange }: { machine: MachineUsage; onChange: (
   )
 }
 
+// A machine row that expands to show its models. Model shares are of that
+// machine's total, with a thin bar so the mix reads at a glance.
+function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsage; total: number; metric: Metric; onChange: () => void }) {
+  const [open, setOpen] = useState(false)
+  const machineTotal = metric === 'cost' ? machine.costMicros : machine.processedTokens
+  const models = metric === 'tokens' ? [...machine.models].sort((a, b) => b.processedTokens - a.processedTokens) : machine.models
+
+  return (
+    <>
+      <tr className={open ? 'uexpand open' : 'uexpand'}>
+        <td>
+          <span className="ucell-name">
+            <button
+              className="uchevron"
+              aria-expanded={open}
+              aria-label={`${open ? 'Hide' : 'Show'} models for ${machine.name}`}
+              onClick={() => setOpen(!open)}
+            >
+              <ChevronRight size={14} />
+            </button>
+            <MachineName machine={machine} onChange={onChange} />
+          </span>
+        </td>
+        <CostCells row={machine} total={total} metric={metric} />
+      </tr>
+      {open &&
+        models.map((m) => {
+          const value = metric === 'cost' ? m.costMicros : m.processedTokens
+          const share = machineTotal ? value / machineTotal : 0
+          const unknown = m.records > 0 && m.unpricedRecords >= m.records
+          return (
+            <tr key={`${m.tool}:${m.model}`} className="usub">
+              <td>
+                <span className="ucell-name usub-name">
+                  <ProviderMark of={m.tool} size={12} />
+                  <span className="mono">{m.model}</span>
+                </span>
+                <div className="usub-bar">
+                  <div style={{ width: `${share * 100}%` }} />
+                </div>
+              </td>
+              <td className="mono num">{unknown ? <span className="faint">Unpriced</span> : formatUsd(m.costMicros)}</td>
+              <td className="mono num faint ushare" title="Share of this machine">
+                {unknown && metric === 'cost' ? '—' : formatPercent(share)}
+              </td>
+              <td className="mono num">{formatTokens(m.processedTokens)}</td>
+            </tr>
+          )
+        })}
+    </>
+  )
+}
+
 function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary; kind: BreakdownKind; metric: Metric; onChange: () => void }) {
   const total = metric === 'cost' ? summary.totals.costMicros : summary.totals.processedTokens
   const sort = <T extends Totals>(rows: T[]) =>
@@ -262,14 +315,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
             </tr>
           ))}
         {kind === 'machine' &&
-          sort(summary.byMachine).map((m) => (
-            <tr key={m.name}>
-              <td>
-                <MachineName machine={m} onChange={onChange} />
-              </td>
-              <CostCells row={m} total={total} metric={metric} />
-            </tr>
-          ))}
+          sort(summary.byMachine).map((m) => <MachineRows key={m.name} machine={m} total={total} metric={metric} onChange={onChange} />)}
         {kind === 'account' &&
           sort(summary.byAccount).map((a) => (
             <tr key={a.name}>
