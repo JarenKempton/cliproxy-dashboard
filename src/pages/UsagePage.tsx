@@ -38,12 +38,14 @@ const RANGE_OPTIONS: [Range, string][] = [
 const PREFS_KEY = 'cpa:usage-prefs'
 
 type Prefs = { range: Range; metric: Metric; breakdown: BreakdownKind; chartBy: ChartGroup }
-const DEFAULT_PREFS: Prefs = { range: '30d', metric: 'cost', breakdown: 'model', chartBy: 'tool' }
+const DEFAULT_PREFS: Prefs = { range: '30d', metric: 'cost', breakdown: 'model', chartBy: 'provider' }
 
 function usePrefs() {
   const [prefs, setPrefs] = useState<Prefs>(() => {
     try {
-      return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
+      const saved = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
+      // "tool" was renamed "provider".
+      return saved.chartBy === 'tool' ? { ...saved, chartBy: 'provider' } : saved
     } catch {
       return DEFAULT_PREFS
     }
@@ -438,7 +440,7 @@ export function UsagePage() {
                   value={prefs.chartBy}
                   onChange={(chartBy) => setPrefs({ chartBy })}
                   options={[
-                    ['tool', 'By tool'],
+                    ['provider', 'By provider'],
                     ['machine', 'By machine'],
                   ]}
                 />
