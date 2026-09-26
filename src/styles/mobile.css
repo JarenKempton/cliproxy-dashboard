@@ -8,53 +8,60 @@
 }
 
 @media (max-width: 760px) {
-  /* Shell: the sidebar becomes a sticky top bar with scrolling nav. */
+  /* Shell: a slim top bar; the sidebar slides in from the left as a menu. */
   .shell {
     display: block;
   }
 
-  .sidebar {
+  .topbar {
     position: sticky;
     top: 0;
     z-index: 20;
-    height: auto;
-    flex-direction: row;
+    display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 8px 12px;
-    border-right: none;
+    gap: 10px;
+    height: 52px;
+    padding: 0 12px 0 6px;
     border-bottom: 1px solid var(--line);
     background: var(--bg);
-    overflow-x: auto;
-    scrollbar-width: none;
   }
 
-  .sidebar::-webkit-scrollbar {
-    display: none;
+  .topbar-title {
+    color: var(--fg);
+    font-weight: 500;
   }
 
-  .sidebar nav {
-    display: flex;
-    gap: 2px;
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 40;
+    width: min(280px, 82vw);
+    height: 100dvh;
+    background: var(--bg);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
   }
 
-  .brand {
-    padding: 0 8px 0 0;
+  .sidebar.open {
+    transform: none;
+    box-shadow: 12px 0 40px oklch(0 0 0 / 0.5);
   }
 
-  .brand-text,
-  .nav-section,
-  .nav-count,
-  .sidebar-foot {
-    display: none;
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: oklch(0 0 0 / 0.55);
   }
 
   .nav-link {
-    padding: 6px 10px;
-    white-space: nowrap;
+    padding: 10px 12px;
   }
 
-  .nav-link[aria-current='page']::before {
+  /* The top bar already names the page. */
+  .page-head h1 {
     display: none;
   }
 
@@ -102,6 +109,14 @@
   }
 
   /* Usage */
+  .range-seg {
+    display: none;
+  }
+
+  .range-select {
+    display: block;
+  }
+
   .utop {
     grid-template-columns: 1fr;
     gap: 28px;

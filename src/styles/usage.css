@@ -6,6 +6,12 @@
   gap: 40px;
 }
 
+.range-select {
+  display: none;
+  width: auto;
+  height: 30px;
+}
+
 .utop-title {
   margin-bottom: 12px;
 }

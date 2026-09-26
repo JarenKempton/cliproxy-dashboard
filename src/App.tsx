@@ -1,5 +1,6 @@
-import { ChartColumn, Gauge, KeyRound, Settings2, Users, Zap } from 'lucide-react'
+import { ChartColumn, Gauge, KeyRound, Menu, Settings2, Users } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
+import { Logo } from './components/Logo'
 import { Toaster } from './components/ui'
 import { proxyVersion } from './lib/api'
 import { useStore } from './lib/store'
@@ -38,18 +39,16 @@ function useRoute(): Route {
   return route
 }
 
-function Sidebar({ route }: { route: Route }) {
+function Sidebar({ route, open, onClose }: { route: Route; open: boolean; onClose: () => void }) {
   const { files, fatal, loaded } = useStore()
   const on = files.filter((f) => !f.disabled).length
   const counts: Partial<Record<Route, ReactNode>> = { accounts: loaded ? `${on}/${files.length}` : null }
   const online = loaded && !fatal
   return (
-    <aside className="sidebar">
+    <aside className={open ? 'sidebar open' : 'sidebar'}>
       <div className="brand">
-        <span className="brand-mark">
-          <Zap size={13} strokeWidth={2.5} />
-        </span>
-        <span className="brand-text">CLIProxy</span>
+        <Logo />
+        CLIProxy
       </div>
       {NAV.map((group) => (
         <nav key={group.section} aria-label={group.section}>
@@ -57,7 +56,7 @@ function Sidebar({ route }: { route: Route }) {
           {group.routes.map((r) => {
             const { label, icon: Icon } = ROUTES[r]
             return (
-              <a key={r} href={`#/${r}`} className="nav-link" aria-current={route === r ? 'page' : undefined}>
+              <a key={r} href={`#/${r}`} className="nav-link" aria-current={route === r ? 'page' : undefined} onClick={onClose}>
                 <Icon size={15} strokeWidth={1.75} />
                 {label}
                 {counts[r] && <span className="nav-count">{counts[r]}</span>}
@@ -74,13 +73,34 @@ function Sidebar({ route }: { route: Route }) {
   )
 }
 
+// On phones the sidebar is a slide-out menu, opened from the top bar.
+function useMenu() {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+  return [open, setOpen] as const
+}
+
 export default function App() {
   const route = useRoute()
   const { fatal } = useStore()
+  const [menuOpen, setMenuOpen] = useMenu()
   const Page = ROUTES[route].page
   return (
     <div className="shell">
-      <Sidebar route={route} />
+      <header className="topbar">
+        <button className="btn btn-ghost btn-icon" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
+          <Menu size={18} />
+        </button>
+        <Logo size={20} />
+        <span className="topbar-title">{ROUTES[route].label}</span>
+      </header>
+      {menuOpen && <div className="scrim" onClick={() => setMenuOpen(false)} />}
+      <Sidebar route={route} open={menuOpen} onClose={() => setMenuOpen(false)} />
       <main className="content">
         {fatal ? (
           <div className="page">

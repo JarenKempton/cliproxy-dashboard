@@ -16,9 +16,19 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
   return <button className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={onChange} />
 }
 
-export function Segmented<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  value: T
+  options: [T, string][]
+  onChange: (v: T) => void
+  className?: string
+}) {
   return (
-    <div className="seg" role="group">
+    <div className={className ? `seg ${className}` : 'seg'} role="group">
       {options.map(([v, label]) => (
         <button key={v} aria-pressed={value === v} onClick={() => onChange(v)}>
           {label}

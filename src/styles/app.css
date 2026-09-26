@@ -126,14 +126,18 @@ a {
   letter-spacing: -0.01em;
 }
 
-.brand-mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  border: 1px solid var(--line-strong);
-  display: grid;
-  place-items: center;
-  color: var(--accent);
+.logo-lit {
+  fill: var(--accent);
+}
+
+.logo-dim {
+  fill: var(--line-strong);
+}
+
+/* Phone-only chrome (see mobile.css). */
+.topbar,
+.scrim {
+  display: none;
 }
 
 .nav-section {

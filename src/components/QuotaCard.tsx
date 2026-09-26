@@ -35,7 +35,11 @@ function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
       </div>
       <div className="qrow-meta mono">
         <span className="faint">{w.resetAtMs ? `resets ${formatRelative(w.resetAtMs, now)}` : 'not started'}</span>
-        {pace.kind === 'short' && <span className="warn-text">out {formatStamp(pace.runsOutAtMs)}</span>}
+        {pace.kind === 'short' && (
+          <span className="warn-text" title="At your current rate you'll hit this limit before it resets.">
+            Runs out {formatStamp(pace.runsOutAtMs, now)}
+          </span>
+        )}
       </div>
     </div>
   )

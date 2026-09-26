@@ -27,6 +27,14 @@ type Metric = 'cost' | 'tokens'
 type BreakdownKind = 'model' | 'day' | 'machine' | 'account'
 
 const REFRESH_EVERY_MS = 30e3
+
+const RANGE_OPTIONS: [Range, string][] = [
+  ['24h', '24 hours'],
+  ['7d', '7 days'],
+  ['30d', '30 days'],
+  ['90d', '90 days'],
+  ['all', 'All time'],
+]
 const PREFS_KEY = 'cpa:usage-prefs'
 
 type Prefs = { range: Range; metric: Metric; breakdown: BreakdownKind }
@@ -321,17 +329,20 @@ export function UsagePage() {
             ['tokens', 'Tokens'],
           ]}
         />
-        <Segmented
+        <Segmented className="range-seg" value={prefs.range} onChange={(range) => setPrefs({ range })} options={RANGE_OPTIONS} />
+        {/* Phones get a compact dropdown instead of five buttons. */}
+        <select
+          className="input range-select"
+          aria-label="Time range"
           value={prefs.range}
-          onChange={(range) => setPrefs({ range })}
-          options={[
-            ['24h', '24h'],
-            ['7d', '7 days'],
-            ['30d', '30 days'],
-            ['90d', '90 days'],
-            ['all', 'All time'],
-          ]}
-        />
+          onChange={(e) => setPrefs({ range: e.target.value as Range })}
+        >
+          {RANGE_OPTIONS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
       </PageHead>
 
       {error && <p className="error-text">Usage server unreachable: {error}</p>}

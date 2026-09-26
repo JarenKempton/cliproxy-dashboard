@@ -1,9 +1,19 @@
-const pad = (n: number) => String(n).padStart(2, '0')
+const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
+const weekdayFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
+const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
 
-// "09/26 15:59"
-export function formatStamp(ms: number): string {
-  const d = new Date(ms)
-  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+const startOfDay = (ms: number) => new Date(ms).setHours(0, 0, 0, 0)
+
+// A moment in plain words, 12-hour clock: "Today 9:27 PM", "Tomorrow 4:00 PM",
+// "Thu 4:00 PM" within the week around now, otherwise "Oct 3, 4:00 PM".
+export function formatStamp(ms: number, now = Date.now()): string {
+  const time = timeFmt.format(ms)
+  const days = Math.round((startOfDay(ms) - startOfDay(now)) / 86400e3)
+  if (days === 0) return `Today ${time}`
+  if (days === 1) return `Tomorrow ${time}`
+  if (days === -1) return `Yesterday ${time}`
+  if (Math.abs(days) < 6) return `${weekdayFmt.format(ms)} ${time}`
+  return `${dateFmt.format(ms)}, ${time}`
 }
 
 // "in 3h 12m", "in 2d 4h", "12m ago"
