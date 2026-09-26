@@ -236,3 +236,35 @@ function getOr<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   if (value === undefined) map.set(key, (value = create()))
   return value
 }
+
+// --- Live activity -------------------------------------------------------------------
+
+// Which accounts served requests in the last few minutes, and for which machines.
+export function recentActivity(db: Db, minutes: number, now = Date.now()) {
+  const rows = db
+    .select({
+      accountRef: requests.accountRef,
+      machine: machine.name,
+      requests: sql<number>`count(*)`,
+      lastAt: sql<number>`max(${requests.occurredAt})`,
+    })
+    .from(requests)
+    .leftJoin(byKey, and(eq(byKey.kind, 'key'), eq(byKey.value, requests.clientKeyHash)))
+    .leftJoin(keyMachine, eq(keyMachine.id, byKey.machineId))
+    .leftJoin(byIp, and(eq(byIp.kind, 'ip'), eq(byIp.value, requests.clientIp)))
+    .leftJoin(ipMachine, eq(ipMachine.id, byIp.machineId))
+    .leftJoin(tailnetDevices, eq(tailnetDevices.ip, requests.clientIp))
+    .where(and(gte(requests.occurredAt, new Date(now - minutes * 60e3)), isNotNull(requests.accountRef)))
+    .groupBy(requests.accountRef, machine.name)
+    .all()
+
+  const accounts = new Map<string, { accountRef: string; requests: number; lastAt: number; machines: { name: string; requests: number }[] }>()
+  for (const row of rows) {
+    const a = getOr(accounts, row.accountRef!, () => ({ accountRef: row.accountRef!, requests: 0, lastAt: 0, machines: [] }))
+    a.requests += row.requests
+    a.lastAt = Math.max(a.lastAt, row.lastAt)
+    a.machines.push({ name: row.machine, requests: row.requests })
+  }
+  for (const a of accounts.values()) a.machines.sort((x, y) => y.requests - x.requests)
+  return { minutes, accounts: [...accounts.values()] }
+}

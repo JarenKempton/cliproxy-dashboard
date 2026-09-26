@@ -69,6 +69,9 @@ const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 export const getUsage = (range: Range) => api<UsageSummary>(`/usage?range=${range}&tz=${encodeURIComponent(timeZone())}`)
 export const getDevices = () => api<Device[]>('/devices')
 
+export type AccountActivity = { accountRef: string; requests: number; lastAt: number; machines: { name: string; requests: number }[] }
+export const getActivity = (minutes: number) => api<{ minutes: number; accounts: AccountActivity[] }>(`/activity?minutes=${minutes}`)
+
 export const nameDevice = (kind: Device['kind'], value: string, name: string) =>
   api('/devices/name', { method: 'PUT', body: JSON.stringify({ kind, value, name }) })
 

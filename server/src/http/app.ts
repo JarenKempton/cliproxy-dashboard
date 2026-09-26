@@ -10,7 +10,7 @@ import { clearIdentityName, listDevices, nameIdentity, type IdentityKind } from 
 import type { Tailnet } from '../tailnet'
 import { hashKey } from '../usage/cliproxy-record'
 import type { PriceBook } from '../usage/pricing'
-import { RANGES, usageSummary, type Range } from '../usage/summary'
+import { RANGES, recentActivity, usageSummary, type Range } from '../usage/summary'
 
 const isKind = (k: unknown): k is IdentityKind => k === 'key' || k === 'ip'
 
@@ -41,6 +41,12 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
     const valid = files.filter((f) => (f.tool === 'claude-code' || f.tool === 'codex') && Array.isArray(f.lines))
     const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
     return c.json({ machineIp: clientIp, ...importTranscripts(db, prices, valid, clientIp) })
+  })
+
+  // ?minutes=5: accounts that served requests recently, and for which machines.
+  app.get('/activity', (c) => {
+    const minutes = Math.min(Math.max(Number(c.req.query('minutes')) || 5, 1), 60)
+    return c.json(recentActivity(db, minutes))
   })
 
   // Machines as seen by the proxy: proxy keys and client IPs, with names.

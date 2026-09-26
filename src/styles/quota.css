@@ -214,6 +214,15 @@
   color: var(--fg-2);
 }
 
+/* Serving requests right now (see Quota page activity). */
+.qcard.in-use {
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--line));
+}
+
+.qcard-status.in-use {
+  color: var(--fg-1);
+}
+
 .qcard-status.warn {
   color: var(--warn);
 }

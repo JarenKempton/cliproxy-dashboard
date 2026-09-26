@@ -7,6 +7,7 @@ import { PROVIDER_NAMES, providerOf, type QuotaWindow } from '../lib/quota'
 import { accountStatus } from '../lib/status'
 import { accountName, useStore } from '../lib/store'
 import { ActivityChart } from './ActivityChart'
+import type { AccountActivity } from '../lib/usage'
 import { ProviderMark } from './ProviderMark'
 import { Switch } from './ui'
 
@@ -59,7 +60,7 @@ function ErrorBlock({ error, now, stale }: { error: QuotaError; now: number; sta
   )
 }
 
-export function QuotaCard({ file }: { file: AuthFile }) {
+export function QuotaCard({ file, activity }: { file: AuthFile; activity?: AccountActivity }) {
   const { quotas, now, busy, toggle, refreshQuota } = useStore()
   const state = quotas[file.auth_index]
   const status = accountStatus(file, now)
@@ -67,7 +68,11 @@ export function QuotaCard({ file }: { file: AuthFile }) {
   const windows = state?.quota?.windows ?? []
 
   return (
-    <article className={['panel qcard', file.disabled && 'off', !file.disabled && state?.error && 'has-error'].filter(Boolean).join(' ')}>
+    <article
+      className={['panel qcard', file.disabled && 'off', activity && 'in-use', !file.disabled && state?.error && 'has-error']
+        .filter(Boolean)
+        .join(' ')}
+    >
       <header className="qcard-head">
         <span title={PROVIDER_NAMES[provider]}>
           <ProviderMark of={provider} />
@@ -105,10 +110,18 @@ export function QuotaCard({ file }: { file: AuthFile }) {
       {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} id={file.auth_index} />}
 
       <footer className="qcard-foot">
-        {/* Only say something when the account isn't simply working. */}
-        <span className={`qcard-status ${status.tone}`} title={status.text}>
-          {status.tone === 'good' || status.tone === 'off' ? '' : status.text}
-        </span>
+        {/* Say something only when it matters: a problem, or live traffic. */}
+        {status.tone === 'warn' || status.tone === 'bad' ? (
+          <span className={`qcard-status ${status.tone}`} title={status.text}>
+            {status.text}
+          </span>
+        ) : activity ? (
+          <span className="qcard-status in-use" title={activity.machines.map((m) => `${m.name}: ${m.requests} requests`).join('\n')}>
+            In use · {activity.machines.map((m) => m.name).join(', ')} · {activity.requests} in 5m
+          </span>
+        ) : (
+          <span className="qcard-status" />
+        )}
         {state?.at && (
           <span className="mono faint" title={`Quota read at ${formatStamp(state.at)}`}>
             read {formatAgo(state.at, now)}
