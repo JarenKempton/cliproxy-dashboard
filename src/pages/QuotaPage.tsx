@@ -30,7 +30,6 @@ export function QuotaPage() {
   const { files, quotas, now, refresh } = useStore()
   const activity = useActivity()
   const on = files.filter((f) => !f.disabled)
-  const offCount = files.length - on.length
 
   // The account serving right now: the one with the most recent request,
   // among accounts that are on and not cooling down or at a limit.
@@ -54,11 +53,6 @@ export function QuotaPage() {
           <QuotaCard key={f.auth_index} file={f} inUse={f === current ? activity.get(f.auth_index) : undefined} />
         ))}
       </div>
-      {offCount > 0 && (
-        <p className="faint qoff-note">
-          {offCount} {offCount === 1 ? 'account is' : 'accounts are'} off · <a href="#/accounts">Accounts</a>
-        </p>
-      )}
 
       <Timeline />
     </div>

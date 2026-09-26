@@ -220,11 +220,6 @@
   color: var(--accent);
 }
 
-.qoff-note {
-  margin: 12px 0 0;
-  font-size: 12px;
-}
-
 .qcard-status.warn {
   color: var(--warn);
 }
