@@ -31,7 +31,11 @@ export type UsageSummary = {
   totals: Totals & { sessions: number }
   tools: ToolUsage[]
   // One point per bucket: hour start (ms) or local day ("YYYY-MM-DD").
-  series: { key: number | string; tools: Record<string, { costMicros: number; tokens: number }> }[]
+  series: {
+    key: number | string
+    tools: Record<string, { costMicros: number; tokens: number }>
+    machines: Record<string, { costMicros: number; tokens: number }>
+  }[]
   byModel: ModelUsage[]
   byMachine: MachineUsage[]
   byAccount: AccountUsage[]

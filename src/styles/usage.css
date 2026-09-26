@@ -12,8 +12,39 @@
   height: 30px;
 }
 
-.utop-title {
+.utop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+}
+
+.seg-small button {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.uchart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.uchart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Total and per-tool split */
@@ -308,7 +339,7 @@
 .tooltip {
   position: absolute;
   top: 0;
-  width: 180px;
+  width: 190px;
   padding: 8px 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);

@@ -70,16 +70,58 @@ export function bucketLabel(key: number | string, long = false) {
   return (long ? hourLongFmt : hourFmt).format(key)
 }
 
-export function UsageChart({ summary, metric }: { summary: UsageSummary; metric: Metric }) {
+// Machine areas overlap, so every pair of colors must stay distinguishable
+// (including for color-blind viewers). From the validated dark palette, these
+// four are the largest set that passes all pairs; past four machines, the
+// smallest fold into "Other".
+const MACHINE_COLORS = ['#3987e5', '#c98500', '#d55181', '#008300']
+const OTHER_COLOR = 'var(--fg-3)'
+
+type Line = { id: string; label: string; color: string; values: number[] }
+export type ChartGroup = 'tool' | 'machine'
+
+function linesFor(summary: UsageSummary, by: ChartGroup, valueOf: (p?: { costMicros: number; tokens: number }) => number): Line[] {
+  if (by === 'tool') {
+    return summary.tools
+      .map((t) => t.tool)
+      .sort(byToolOrder)
+      .map((tool) => ({ id: tool, label: toolLabel(tool), color: toolColor(tool), values: summary.series.map((b) => valueOf(b.tools[tool])) }))
+  }
+
+  const all = summary.byMachine.map((m) => m.name) // biggest first
+  const fits = all.length <= MACHINE_COLORS.length
+  const shown = fits ? all : all.slice(0, MACHINE_COLORS.length - 1)
+  const others = all.filter((name) => !shown.includes(name))
+  // Colors go by name order, so a machine keeps its color when rankings shift.
+  const byName = [...shown].sort()
+  const colorOf = (name: string) => MACHINE_COLORS[byName.indexOf(name)]
+
+  const lines: Line[] = shown.map((name) => ({
+    id: name,
+    label: name,
+    color: colorOf(name),
+    values: summary.series.map((b) => valueOf(b.machines[name])),
+  }))
+  if (others.length) {
+    lines.push({
+      id: 'other',
+      label: `Other (${others.length})`,
+      color: OTHER_COLOR,
+      values: summary.series.map((b) => others.reduce((n, name) => n + valueOf(b.machines[name]), 0)),
+    })
+  }
+  return lines
+}
+
+export function UsageChart({ summary, metric, by }: { summary: UsageSummary; metric: Metric; by: ChartGroup }) {
   const [ref, width] = useWidth<HTMLDivElement>()
   const [hover, setHover] = useState<number | null>(null)
 
   const valueOf = (p?: { costMicros: number; tokens: number }) => (p ? (metric === 'cost' ? p.costMicros : p.tokens) : 0)
   const format = (v: number) => (metric === 'cost' ? formatUsd(v) : formatTokens(v))
 
-  const tools = summary.tools.map((t) => t.tool).sort(byToolOrder)
-  const series = tools.map((tool) => ({ tool, values: summary.series.map((b) => valueOf(b.tools[tool])) }))
-  const peak = Math.max(0, ...series.flatMap((s) => s.values))
+  const lines = linesFor(summary, by, valueOf)
+  const peak = Math.max(0, ...lines.flatMap((l) => l.values))
   const { top, step } = niceScale(peak, 4)
 
   const plotW = Math.max(width - AXIS_W, 0)
@@ -89,7 +131,8 @@ export function UsageChart({ summary, metric }: { summary: UsageSummary; metric:
   const y = (v: number) => PAD_TOP + plotH - (v / top) * plotH
 
   // Larger series first, so smaller ones stay visible on top.
-  const painted = [...series].sort((a, b) => b.values.reduce((n, v) => n + v, 0) - a.values.reduce((n, v) => n + v, 0))
+  const sum = (l: Line) => l.values.reduce((n, v) => n + v, 0)
+  const painted = [...lines].sort((a, b) => sum(b) - sum(a))
 
   const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const left = e.clientX - e.currentTarget.getBoundingClientRect().left - AXIS_W
@@ -102,13 +145,24 @@ export function UsageChart({ summary, metric }: { summary: UsageSummary; metric:
 
   return (
     <div className="uchart">
+      {/* The tool view's legend is the per-tool list beside the chart. */}
+      {by === 'machine' && (
+        <div className="uchart-legend">
+          {lines.map((l) => (
+            <span key={l.id} className="uchart-legend-item">
+              <span className="tooltip-key" style={{ background: l.color }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="uchart-plot" ref={ref}>
         {width > 0 && (
-          <svg width={width} height={HEIGHT} onPointerMove={onMove} onPointerLeave={() => setHover(null)} role="img" aria-label={`${metric === 'cost' ? 'Cost' : 'Tokens'} over time by tool`}>
+          <svg width={width} height={HEIGHT} onPointerMove={onMove} onPointerLeave={() => setHover(null)} role="img" aria-label={`${metric === 'cost' ? 'Cost' : 'Tokens'} over time by ${by}`}>
             <defs>
-              {tools.map((tool) => (
-                <pattern key={tool} id={`dots-${tool}`} width="3" height="3" patternUnits="userSpaceOnUse">
-                  <circle cx="1.5" cy="1.5" r="0.45" fill={toolColor(tool)} opacity="0.55" />
+              {lines.map((l, i) => (
+                <pattern key={l.id} id={`dots-${by}-${i}`} width="3" height="3" patternUnits="userSpaceOnUse">
+                  <circle cx="1.5" cy="1.5" r="0.45" fill={l.color} opacity="0.55" />
                 </pattern>
               ))}
             </defs>
@@ -122,18 +176,19 @@ export function UsageChart({ summary, metric }: { summary: UsageSummary; metric:
               </g>
             ))}
 
-            {painted.map(({ tool, values }) => {
-              const line = monotonePath(values.map((v, i) => [x(i), y(v)]))
-              return (
-                <path key={`fill-${tool}`} d={`${line}L${x(count - 1)},${y(0)}L${x(0)},${y(0)}Z`} fill={`url(#dots-${tool})`} />
-              )
-            })}
-            {painted.map(({ tool, values }) => (
+            {painted.map((l) => (
               <path
-                key={`line-${tool}`}
-                d={monotonePath(values.map((v, i) => [x(i), y(v)]))}
+                key={`fill-${l.id}`}
+                d={`${monotonePath(l.values.map((v, i) => [x(i), y(v)]))}L${x(count - 1)},${y(0)}L${x(0)},${y(0)}Z`}
+                fill={`url(#dots-${by}-${lines.indexOf(l)})`}
+              />
+            ))}
+            {painted.map((l) => (
+              <path
+                key={`line-${l.id}`}
+                d={monotonePath(l.values.map((v, i) => [x(i), y(v)]))}
                 fill="none"
-                stroke={toolColor(tool)}
+                stroke={l.color}
                 strokeWidth={1.5}
                 strokeLinejoin="round"
               />
@@ -143,18 +198,18 @@ export function UsageChart({ summary, metric }: { summary: UsageSummary; metric:
           </svg>
         )}
         {hovered && hover !== null && (
-          <div className="tooltip" style={{ left: Math.min(x(hover) + 12, width - 190) }}>
+          <div className="tooltip" style={{ left: Math.min(x(hover) + 12, width - 200) }}>
             <div className="tooltip-title">{bucketLabel(hovered.key, true)}</div>
-            {tools.map((tool) => (
-              <div key={tool} className="tooltip-row">
-                <span className="tooltip-key" style={{ background: toolColor(tool) }} />
-                <span>{toolLabel(tool)}</span>
-                <strong>{format(valueOf(hovered.tools[tool]))}</strong>
+            {lines.map((l) => (
+              <div key={l.id} className="tooltip-row">
+                <span className="tooltip-key" style={{ background: l.color }} />
+                <span className="tooltip-label">{l.label}</span>
+                <strong>{format(l.values[hover])}</strong>
               </div>
             ))}
             <div className="tooltip-row tooltip-total">
               <span>Total</span>
-              <strong>{format(tools.reduce((n, t) => n + valueOf(hovered.tools[t]), 0))}</strong>
+              <strong>{format(lines.reduce((n, l) => n + l.values[hover], 0))}</strong>
             </div>
           </div>
         )}

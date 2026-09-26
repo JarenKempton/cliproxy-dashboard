@@ -176,8 +176,10 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
       models: Map<string, ModelTotals> // this machine's usage per model
     }
   >()
-  const series = new Map<number | string, Map<string, { costMicros: number; tokens: number }>>(
-    window.keys.map((k) => [k, new Map()]),
+  // Per bucket: totals by tool and by machine name.
+  type Point = { costMicros: number; tokens: number }
+  const series = new Map<number | string, { tools: Map<string, Point>; machines: Map<string, Point> }>(
+    window.keys.map((k) => [k, { tools: new Map(), machines: new Map() }]),
   )
 
   for (const g of groups) {
@@ -201,9 +203,10 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
 
     const bucket = series.get(window.keyOf(g.hour))
     if (bucket) {
-      const point = getOr(bucket, g.tool, () => ({ costMicros: 0, tokens: 0 }))
-      point.costMicros += g.costMicros
-      point.tokens += g.processedTokens
+      for (const point of [getOr(bucket.tools, g.tool, emptyPoint), getOr(bucket.machines, g.name, emptyPoint)]) {
+        point.costMicros += g.costMicros
+        point.tokens += g.processedTokens
+      }
     }
   }
 
@@ -215,7 +218,7 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
     bucket: window.bucket,
     totals: { ...totals, sessions: sessions.reduce((n, s) => n + s.sessions, 0) },
     tools: [...tools].map(([name, t]) => ({ tool: name, sessions: sessionsOf.get(name) ?? 0, ...t })).sort(byCost),
-    series: [...series].map(([key, byTool]) => ({ key, tools: Object.fromEntries(byTool) })),
+    series: [...series].map(([key, b]) => ({ key, tools: Object.fromEntries(b.tools), machines: Object.fromEntries(b.machines) })),
     byModel: [...models.values()].sort(byCost),
     byMachine: [...machinesByName.values()]
       .map((m) => ({ ...m, models: [...m.models.values()].sort(byCost) }))
@@ -225,6 +228,8 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
 }
 
 export type UsageSummary = ReturnType<typeof usageSummary>
+
+const emptyPoint = () => ({ costMicros: 0, tokens: 0 })
 
 function getOr<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   let value = map.get(key)

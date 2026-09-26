@@ -4,7 +4,7 @@
 import { ChevronRight, Pencil, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ProviderMark } from '../components/ProviderMark'
-import { bucketLabel, UsageChart } from '../components/UsageChart'
+import { bucketLabel, UsageChart, type ChartGroup } from '../components/UsageChart'
 import { PageHead, Segmented, toast } from '../components/ui'
 import {
   byToolOrder,
@@ -37,8 +37,8 @@ const RANGE_OPTIONS: [Range, string][] = [
 ]
 const PREFS_KEY = 'cpa:usage-prefs'
 
-type Prefs = { range: Range; metric: Metric; breakdown: BreakdownKind }
-const DEFAULT_PREFS: Prefs = { range: '30d', metric: 'cost', breakdown: 'model' }
+type Prefs = { range: Range; metric: Metric; breakdown: BreakdownKind; chartBy: ChartGroup }
+const DEFAULT_PREFS: Prefs = { range: '30d', metric: 'cost', breakdown: 'model', chartBy: 'tool' }
 
 function usePrefs() {
   const [prefs, setPrefs] = useState<Prefs>(() => {
@@ -431,8 +431,19 @@ export function UsagePage() {
           <div className="utop">
             <Hero summary={summary} metric={prefs.metric} />
             <div>
-              <div className="eyebrow utop-title">{chartTitle}</div>
-              <UsageChart summary={summary} metric={prefs.metric} />
+              <div className="utop-head">
+                <div className="eyebrow">{chartTitle}</div>
+                <Segmented
+                  className="seg-small"
+                  value={prefs.chartBy}
+                  onChange={(chartBy) => setPrefs({ chartBy })}
+                  options={[
+                    ['tool', 'By tool'],
+                    ['machine', 'By machine'],
+                  ]}
+                />
+              </div>
+              <UsageChart summary={summary} metric={prefs.metric} by={prefs.chartBy} />
             </div>
           </div>
 
