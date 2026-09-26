@@ -108,10 +108,6 @@
   background: var(--bg-raised);
 }
 
-.krow.selected {
-  background: var(--bg-hover);
-}
-
 .krow-label {
   width: 100%;
   height: 28px;
@@ -138,70 +134,66 @@
   overflow: hidden;
 }
 
-.connect-controls {
-  display: flex;
+/* Labeled rows: label column, then the control. */
+.connect-form {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
   align-items: center;
+  gap: 14px 16px;
+  padding: 18px 16px;
+}
+
+.connect-name {
+  max-width: 320px;
+}
+
+.connect-options {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px;
-  border-bottom: 1px solid var(--line);
 }
 
-.code {
-  margin: 0;
-  padding: 16px;
-  background: var(--bg);
-  font-family: var(--mono);
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--fg-1);
-  overflow-x: auto;
-}
-
-.connect-machine {
-  display: flex;
+.chip {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px 0;
-  font-size: 12px;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg-2);
+  font-size: 13px;
 }
 
-.connect-machine .input {
-  width: 220px;
-}
-
-.connect-files {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px 0;
-}
-
-.connect-file {
-  display: flex;
-  gap: 16px;
-}
-
-.connect-file .mono:first-child {
-  min-width: 190px;
+.chip:hover {
   color: var(--fg-1);
 }
 
-.connect-actions {
-  display: flex;
-  gap: 8px;
-  padding: 14px 16px;
+.chip[aria-pressed='true'] {
+  border-color: var(--fg-3);
+  background: var(--bg-raised);
+  color: var(--fg);
 }
 
-.connect-actions + .code {
+.chip-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+}
+
+.chip[aria-pressed='true'] .chip-check {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.connect-result {
+  padding: 16px;
   border-top: 1px solid var(--line);
-}
-
-.connect-cmds {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
 }
 
 .cmd {
@@ -222,29 +214,25 @@
   color: var(--fg-1);
 }
 
-.cmd code b {
-  color: var(--fg);
-  font-weight: 600;
-}
-
-.cmd.subtle {
-  border-color: var(--line);
-}
-
-.cmd.subtle code {
-  color: var(--fg-2);
-}
-
-.cmd-meta {
-  font-size: 11px;
-  margin: -2px 0 6px 2px;
-}
-
-.connect-note {
-  margin: 0;
-  padding: 10px 16px;
-  border-top: 1px solid var(--line);
+.connect-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
   font-size: 12px;
+}
+
+.linklike {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-2);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.linklike:hover {
+  color: var(--fg);
 }
 
 /* Config -------------------------------------------------------------------- */

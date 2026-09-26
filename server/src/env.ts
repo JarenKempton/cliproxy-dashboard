@@ -21,8 +21,11 @@ export const env = {
   host: '127.0.0.1',
   port: Number(process.env.USAGE_SERVER_PORT ?? 5174),
 
-  // Local-network history import for machines without Tailscale; 0 disables it.
-  lanImportPort: Number(process.env.LAN_IMPORT_PORT ?? 5175),
+  // Local-network listener (connect and history import) for machines without
+  // Tailscale; 0 disables it.
+  lanPort: Number(process.env.LAN_PORT ?? process.env.LAN_IMPORT_PORT ?? 5175),
+  // Port `tailscale serve` exposes the dashboard on.
+  tailnetDashboardPort: Number(process.env.TAILNET_DASHBOARD_PORT ?? 5443),
 
   databasePath: process.env.USAGE_DB_PATH ?? 'data/usage.db',
   priceCachePath: process.env.PRICE_CACHE_PATH ?? 'data/litellm-prices.json',

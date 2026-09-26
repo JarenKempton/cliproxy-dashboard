@@ -215,21 +215,17 @@
     flex: 1;
   }
 
-  .connect-machine {
-    flex-wrap: wrap;
+  .connect-form {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
-  .connect-machine .input {
-    width: 100%;
+  .connect-form > span:empty {
+    display: none;
   }
 
-  .connect-file {
-    flex-direction: column;
-    gap: 0;
-  }
-
-  .connect-actions {
-    flex-wrap: wrap;
+  .connect-name {
+    max-width: none;
   }
 
   /* Config: label above control. */

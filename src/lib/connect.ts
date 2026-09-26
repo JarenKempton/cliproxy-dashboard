@@ -237,8 +237,3 @@ with open(out, "w") as f:
 print("Wrote %s (%d files, %d usage lines). Copy it to the dashboard machine to import." % (out, len(files), sum(len(x["lines"]) for x in files)))
 CLIPROXY_PY`
 }
-
-export const CHANGED_FILES: Record<Tool, { path: string; what: string }> = {
-  claude: { path: '~/.claude/settings.json', what: 'env.ANTHROPIC_BASE_URL, env.ANTHROPIC_AUTH_TOKEN' },
-  codex: { path: '~/.codex/config.toml', what: 'model_provider, [model_providers.cliproxy]' },
-}
