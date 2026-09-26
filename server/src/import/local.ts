@@ -10,8 +10,14 @@ import { env } from '../env'
 import { PriceBook } from '../usage/pricing'
 import { importTranscripts, type TranscriptFile } from './importer'
 
+// Claude Code uses ~/.claude, or ~/.config/claude on newer installs; reading both
+// is safe because duplicates are dropped on import.
+const claudeDirs = process.env.CLAUDE_CONFIG_DIR
+  ? [process.env.CLAUDE_CONFIG_DIR]
+  : [join(homedir(), '.claude'), join(homedir(), '.config/claude')]
+
 const SOURCES: { tool: TranscriptFile['tool']; dir: string }[] = [
-  { tool: 'claude-code', dir: process.env.CLAUDE_CONFIG_DIR ? join(process.env.CLAUDE_CONFIG_DIR, 'projects') : join(homedir(), '.claude/projects') },
+  ...claudeDirs.map((dir) => ({ tool: 'claude-code' as const, dir: join(dir, 'projects') })),
   { tool: 'codex', dir: join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions') },
 ]
 

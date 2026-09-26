@@ -161,8 +161,11 @@ def keep_codex(r):
     return None
 
 home = os.path.expanduser("~")
-sources = [("claude-code", os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", home + "/.claude"), "projects"), keep_claude),
-           ("codex", os.path.join(os.environ.get("CODEX_HOME", home + "/.codex"), "sessions"), keep_codex)]
+# Claude Code uses ~/.claude, or ~/.config/claude on newer installs; duplicates are
+# dropped on import, so reading both is safe.
+claude_dirs = [os.environ["CLAUDE_CONFIG_DIR"]] if os.environ.get("CLAUDE_CONFIG_DIR") else [home + "/.claude", home + "/.config/claude"]
+sources = [("claude-code", os.path.join(d, "projects"), keep_claude) for d in claude_dirs]
+sources.append(("codex", os.path.join(os.environ.get("CODEX_HOME", home + "/.codex"), "sessions"), keep_codex))
 files = []
 for tool, root, keep in sources:
     for path in sorted(glob.glob(root + "/**/*.jsonl", recursive=True)):
