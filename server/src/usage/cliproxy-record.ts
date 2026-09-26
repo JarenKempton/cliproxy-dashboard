@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto'
 import type { requests } from '../db/schema'
-import { costOf, type PriceBook } from './pricing'
+import { cacheSavingsOf, costOf, type PriceBook } from './pricing'
 
 // The fields we use; the record carries more.
 export type CliproxyRecord = {
@@ -86,6 +86,7 @@ export function toRequestRow(r: CliproxyRecord, prices: PriceBook): RequestRow {
     reasoningTokens: tokens.reasoning,
 
     costMicros: price ? costOf(tokens, price.rates) : null,
+    cacheSavingsMicros: price ? cacheSavingsOf(tokens, price.rates) : null,
     pricedAs: price?.pricedAs ?? null,
   }
 }

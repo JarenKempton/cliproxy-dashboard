@@ -1,121 +1,110 @@
 /* Usage page ------------------------------------------------------------------ */
 
-.small {
-  font-size: 11px;
+.utop {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+  gap: 40px;
 }
 
-.ustats {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
-  gap: 12px;
+.utop-title {
   margin-bottom: 12px;
 }
 
-.ustat {
-  padding: 16px 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
+/* Total and per-tool split */
 
-.ustat .eyebrow {
-  margin-bottom: 6px;
-}
-
-.ustat-hero {
+.uhero-cost {
   color: var(--fg);
   font-size: 40px;
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
-.ustat-value {
+.uhero-sub {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.utools {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.utool-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.utool-name {
   color: var(--fg);
-  font-size: 24px;
-  font-weight: 500;
-  line-height: 1.3;
 }
 
-.ucharts {
-  padding: 16px 16px 8px;
+.utool-sessions {
+  font-size: 11px;
 }
 
-.costchart {
+.utool-cost {
+  margin-left: auto;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.utool-sub {
+  margin: 3px 0 0 15px;
+  font-size: 11px;
+}
+
+/* Chart */
+
+.uchart-plot {
   position: relative;
 }
 
-.costchart svg {
+.uchart-plot svg {
   display: block;
 }
 
-.cap-hover {
-  fill: var(--fg);
+.uchart-x {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0 0 64px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--fg-3);
 }
 
-.ubreaks {
+.crosshair {
+  stroke: var(--fg-3);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+/* Totals */
+
+.utotals {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin-top: 12px;
+  grid-template-columns: repeat(5, 1fr);
 }
 
-.ubreak {
+.utotal {
   padding: 14px 16px;
 }
 
-.ubreak-title {
-  margin-bottom: 10px;
+.utotal + .utotal {
+  border-left: 1px solid var(--line);
 }
 
-.ubreak-empty {
-  font-size: 13px;
-}
-
-.ubreak-row + .ubreak-row {
-  margin-top: 10px;
-}
-
-.ubreak-line {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-size: 13px;
-}
-
-.ubreak-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg-1);
-}
-
-.ubreak-name.mono {
-  font-size: 12px;
-}
-
-.ubreak-cost {
+.utotal-value {
+  margin-top: 6px;
   color: var(--fg);
-  min-width: 56px;
-  text-align: right;
+  font-size: 18px;
 }
 
-.ubreak-bar {
-  height: 2px;
-  margin-top: 5px;
-  border-radius: 1px;
-  background: var(--bg-active);
-}
-
-.ubreak-bar div {
-  height: 100%;
-  border-radius: 1px;
-  background: var(--accent);
-}
-
-/* Tables */
+/* Breakdown table */
 
 .utable-wrap {
   overflow-x: auto;
@@ -128,7 +117,7 @@
 }
 
 .utable th {
-  padding: 10px 10px;
+  padding: 10px;
   border-bottom: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 11px;
@@ -141,17 +130,9 @@
 }
 
 .utable td {
-  padding: 8px 10px;
+  padding: 9px 10px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
-}
-
-.utable tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.utable tbody tr:hover {
-  background: var(--bg-raised);
 }
 
 .utable th:first-child,
@@ -164,10 +145,12 @@
   padding-right: 16px;
 }
 
-.utable-clip {
-  max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.utable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.utable tbody tr:hover {
+  background: var(--bg-raised);
 }
 
 .utable .num {
@@ -178,8 +161,26 @@
   font-size: 12px;
 }
 
-.utable tr.failed td:first-child {
-  color: var(--bad);
+.ucol-name {
+  width: 50%;
+}
+
+.ucell-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ucell-name .mono {
+  font-size: 12px;
+}
+
+/* Machine names: click to rename */
+
+.udev {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .udev-name {
@@ -199,6 +200,17 @@
 .udev-name:hover svg,
 .udev-name:focus-visible svg {
   opacity: 1;
+}
+
+.udev-reset {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  background: none;
+}
+
+.udev-reset:hover {
+  color: var(--fg);
 }
 
 .udev-input {
@@ -223,7 +235,7 @@
 .tooltip {
   position: absolute;
   top: 0;
-  width: 172px;
+  width: 180px;
   padding: 8px 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -233,19 +245,39 @@
 }
 
 .tooltip-title {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   color: var(--fg-3);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .tooltip-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   color: var(--fg-2);
 }
 
+.tooltip-row + .tooltip-row {
+  margin-top: 2px;
+}
+
 .tooltip-row strong {
+  margin-left: auto;
   color: var(--fg);
   font-family: var(--mono);
   font-weight: 500;
+}
+
+.tooltip-key {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.tooltip-total {
+  margin-top: 6px !important;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
 }

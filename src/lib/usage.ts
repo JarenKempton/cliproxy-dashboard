@@ -1,45 +1,39 @@
 // Client for the usage server (server/), reached through the dev server's /api proxy.
 
-export type Range = '24h' | '7d' | '30d'
+export type Range = '24h' | '7d' | '30d' | '90d'
 
 export type Totals = {
-  requests: number
-  failed: number
   costMicros: number
-  unpriced: number
-  inputTokens: number
-  cacheReadTokens: number
+  cacheSavingsMicros: number
+  records: number
+  unpricedRecords: number
+  uncachedTokens: number
+  cachedTokens: number
   cacheWriteTokens: number
   outputTokens: number
+  processedTokens: number
 }
 
-export type Breakdown = Totals & { name: string }
+export type ToolUsage = Totals & { tool: string; sessions: number }
+export type ModelUsage = Totals & { tool: string; model: string }
+export type MachineUsage = Totals & {
+  name: string
+  nameSource: 'custom' | 'tailscale' | null
+  identities: { kind: 'key' | 'ip'; value: string }[]
+}
+export type AccountUsage = Totals & { name: string }
 
-export type Overview = {
+export type UsageSummary = {
   range: Range
-  from: number
-  bucketMs: number
-  totals: Totals
-  series: { at: number; costMicros: number; requests: number }[]
-  byModel: Breakdown[]
-  byMachine: Breakdown[]
-  byAccount: Breakdown[]
-  byTool: Breakdown[]
-}
-
-export type RecentRequest = {
-  occurredAt: string
-  model: string
-  tool: string | null
-  account: string | null
-  machine: string
-  failed: boolean
-  latencyMs: number | null
-  inputTokens: number | null
-  cacheReadTokens: number | null
-  cacheWriteTokens: number | null
-  outputTokens: number | null
-  costMicros: number | null
+  timeZone: string
+  bucket: 'hour' | 'day'
+  totals: Totals & { sessions: number }
+  tools: ToolUsage[]
+  // One point per bucket: hour start (ms) or local day ("YYYY-MM-DD").
+  series: { key: number | string; tools: Record<string, { costMicros: number; tokens: number }> }[]
+  byModel: ModelUsage[]
+  byMachine: MachineUsage[]
+  byAccount: AccountUsage[]
 }
 
 export type Device = {
@@ -64,11 +58,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-// Minutes east of UTC, so the server buckets by local hours and days.
-const tz = () => -new Date().getTimezoneOffset()
+// The viewer's time zone, so days are local days.
+const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 
-export const getOverview = (range: Range) => api<Overview>(`/usage?range=${range}&tz=${tz()}`)
-export const getRecent = (limit = 50) => api<RecentRequest[]>(`/usage/requests?limit=${limit}`)
+export const getUsage = (range: Range) => api<UsageSummary>(`/usage?range=${range}&tz=${encodeURIComponent(timeZone())}`)
 export const getDevices = () => api<Device[]>('/devices')
 
 export const nameDevice = (kind: Device['kind'], value: string, name: string) =>
@@ -93,19 +86,50 @@ export async function hashKey(key: string): Promise<string> {
     .slice(0, 16)
 }
 
-// --- Formatting ------------------------------------------------------------------
+// --- Tools -------------------------------------------------------------------------
 
-export function formatUsd(micros: number): string {
-  const usd = micros / 1e6
-  if (usd === 0) return '$0'
-  if (usd < 0.01) return '<$0.01'
-  if (usd >= 1000) return `$${(usd / 1000).toFixed(1)}k`
-  return `$${usd.toFixed(2)}`
+// Fixed order and colors, so a tool keeps its color whatever else is shown.
+const TOOLS: Record<string, { label: string; color: string }> = {
+  codex: { label: 'Codex', color: 'var(--fg-1)' },
+  'claude-code': { label: 'Claude Code', color: 'var(--accent)' },
 }
+const TOOL_ORDER = Object.keys(TOOLS)
 
+export const toolLabel = (tool: string) => TOOLS[tool]?.label ?? tool
+export const toolColor = (tool: string) => TOOLS[tool]?.color ?? 'var(--fg-3)'
+export const byToolOrder = (a: string, b: string) =>
+  (TOOL_ORDER.indexOf(a) + 1 || 99) - (TOOL_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b)
+
+// --- Formatting (matches T3 Code) ---------------------------------------------------
+
+const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// $1,219.02
+export const formatUsd = (micros: number) => usd.format(micros / 1e6)
+
+// 849M, 6.04B, 19.9B: fewer decimals as the number grows.
 export function formatTokens(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`
-  return String(n)
+  const units: [number, string][] = [
+    [1e12, 'T'],
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ]
+  for (const [size, suffix] of units) {
+    if (n >= size) {
+      const v = n / size
+      const decimals = v >= 100 ? 0 : v >= 10 ? 1 : 2
+      // Trim trailing zeros after the decimal point only ("6.00B" → "6B", "100M" stays).
+      return `${v.toFixed(decimals).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')}${suffix}`
+    }
+  }
+  return String(Math.round(n))
 }
+
+// 29.4%, <0.1%
+export function formatPercent(fraction: number): string {
+  if (fraction > 0 && fraction < 0.001) return '<0.1%'
+  return `${(fraction * 100).toFixed(1)}%`
+}
+
+export const formatCount = (n: number) => n.toLocaleString('en-US')

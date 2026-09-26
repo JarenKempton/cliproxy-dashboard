@@ -48,8 +48,10 @@ export const requests = sqliteTable(
     outputTokens: integer('output_tokens'), // includes reasoning
     reasoningTokens: integer('reasoning_tokens'),
 
-    // API-equivalent cost at the time of the request; NULL when the model has no price.
+    // API-equivalent cost; NULL when the model has no price.
     costMicros: integer('cost_micros'),
+    // What cache reads saved versus paying the full input rate.
+    cacheSavingsMicros: integer('cache_savings_micros'),
     pricedAs: text('priced_as'), // price-table entry used, for auditing
   },
   (t) => [

@@ -66,10 +66,9 @@ function Sidebar({ route }: { route: Route }) {
           })}
         </nav>
       ))}
+      {/* Quiet unless something is wrong. */}
       <div className="sidebar-foot mono faint">
-        <span className={`dot ${online ? 'good' : loaded ? 'bad' : ''}`} />
-        {online ? 'proxy online' : loaded ? 'proxy unreachable' : 'connecting…'}
-        {proxyVersion && <span style={{ marginLeft: 'auto' }}>v{proxyVersion}</span>}
+        {loaded && !online ? <span className="error-text">Can’t reach the proxy</span> : proxyVersion && `CLIProxyAPI ${proxyVersion}`}
       </div>
     </aside>
   )

@@ -9,9 +9,7 @@ import { clearIdentityName, listDevices, nameIdentity, type IdentityKind } from 
 import type { Tailnet } from '../tailnet'
 import { hashKey } from '../usage/cliproxy-record'
 import type { PriceBook } from '../usage/pricing'
-import { recentRequests, usageOverview, type Range } from '../usage/queries'
-
-const RANGES: Range[] = ['24h', '7d', '30d']
+import { RANGES, usageSummary, type Range } from '../usage/summary'
 
 const isKind = (k: unknown): k is IdentityKind => k === 'key' || k === 'ip'
 
@@ -26,17 +24,11 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
     }),
   )
 
+  // ?range=24h|7d|30d|90d&tz=<IANA time zone> (days are the viewer's local days).
   app.get('/usage', (c) => {
-    const range = (c.req.query('range') ?? '24h') as Range
+    const range = (c.req.query('range') ?? '30d') as Range
     if (!RANGES.includes(range)) return c.json({ error: `range must be one of ${RANGES.join(', ')}` }, 400)
-    // tz: the viewer's offset from UTC in minutes (east positive).
-    const tzOffsetMs = (Number(c.req.query('tz')) || 0) * 60e3
-    return c.json(usageOverview(db, range, tzOffsetMs))
-  })
-
-  app.get('/usage/requests', (c) => {
-    const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 500)
-    return c.json(recentRequests(db, limit))
+    return c.json(usageSummary(db, range, validTimeZone(c.req.query('tz'))))
   })
 
   // Machines as seen by the proxy: proxy keys and client IPs, with names.
@@ -78,4 +70,12 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
   })
 
   return app
+}
+
+function validTimeZone(tz: string | undefined) {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz }).resolvedOptions().timeZone
+  } catch {
+    return 'UTC'
+  }
 }

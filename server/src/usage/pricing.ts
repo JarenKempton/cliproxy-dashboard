@@ -42,6 +42,14 @@ const perMTok = (usdPerToken: number) => Math.round(usdPerToken * 1e12)
 // Providers whose own list prices we prefer when a model appears under several.
 const FIRST_PARTY = ['anthropic', 'openai']
 
+// Placeholder or alias names that don't identify a billable model.
+const NEVER_PRICED = new Set(['<synthetic>', 'synthetic', 'opus', 'sonnet', 'haiku', 'fable'])
+
+// "Claude-Opus-5-5[1m]" → "claude-opus-5-5" (context-size suffixes aren't separate prices).
+export function normalizeModel(model: string) {
+  return model.trim().toLowerCase().replace(/\[.*$/, '')
+}
+
 export class PriceBook {
   private table: Record<string, LiteLlmEntry> = {}
   private overrides = new Map<string, Rates>()
@@ -51,6 +59,9 @@ export class PriceBook {
     private db: Db,
     private cachePath: string,
   ) {}
+
+  // Called after each successful refresh, e.g. to reprice stored rows.
+  onRefresh: () => void = () => {}
 
   async start() {
     this.loadOverrides()
@@ -69,6 +80,7 @@ export class PriceBook {
       this.loadedAt = Date.now()
       mkdirSync(dirname(this.cachePath), { recursive: true })
       writeFileSync(this.cachePath, text)
+      this.onRefresh()
     } catch (err) {
       console.warn(`[pricing] refresh failed, using cached table: ${(err as Error).message}`)
     }
@@ -96,9 +108,12 @@ export class PriceBook {
   }
 
   // Finds rates for a model name, returning the entry name used.
-  lookup(model: string): { rates: Rates; pricedAs: string } | null {
-    const override = this.overrides.get(model)
-    if (override) return { rates: override, pricedAs: `override:${model}` }
+  lookup(rawModel: string): { rates: Rates; pricedAs: string } | null {
+    const override = this.overrides.get(rawModel.trim())
+    if (override) return { rates: override, pricedAs: `override:${rawModel.trim()}` }
+
+    const model = normalizeModel(rawModel)
+    if (NEVER_PRICED.has(model)) return null
 
     const exact = this.table[model]
     if (exact && FIRST_PARTY.includes(exact.litellm_provider ?? '')) return this.toRates(model, exact)
@@ -133,7 +148,7 @@ function rank(e: LiteLlmEntry) {
 }
 
 // Cost in micro-dollars. Cache tokens without a cache rate are charged at the
-// plain input rate, which overstates rather than hides them.
+// plain input rate, so cached tokens are never treated as free.
 export function costOf(tokens: Tokens, rates: Rates): number {
   const micros =
     (tokens.input ?? 0) * rates.input +
@@ -141,4 +156,11 @@ export function costOf(tokens: Tokens, rates: Rates): number {
     (tokens.cacheWrite ?? 0) * (rates.cacheWrite ?? rates.input) +
     (tokens.output ?? 0) * rates.output
   return Math.round(micros / 1e6)
+}
+
+// What cache reads saved versus paying full input price for them. Cache
+// writes aren't counted: they cost more than plain input, not less.
+export function cacheSavingsOf(tokens: Tokens, rates: Rates): number {
+  const perToken = rates.input - (rates.cacheRead ?? rates.input)
+  return Math.round(((tokens.cacheRead ?? 0) * perToken) / 1e6)
 }

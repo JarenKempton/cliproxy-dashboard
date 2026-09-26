@@ -7,11 +7,14 @@ import { env } from './env'
 import { createApp } from './http/app'
 import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
+import { repriceMissing } from './usage/reprice'
 
 const db = openDb(env.databasePath)
 
 const prices = new PriceBook(db, env.priceCachePath)
 await prices.start()
+repriceMissing(db, prices)
+prices.onRefresh = () => repriceMissing(db, prices)
 
 const collector = new CliproxyCollector(db, prices, {
   host: env.proxyHost,
