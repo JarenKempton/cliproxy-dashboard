@@ -1,6 +1,7 @@
 // Codex reset credits: a quiet line on the card; spending one takes a
 // deliberate trip through a confirmation that spells out what happens.
 
+import { RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import type { AuthFile } from '../lib/api'
 import { formatStamp } from '../lib/format'
@@ -46,10 +47,15 @@ export function ResetCredits({
 
   return (
     <>
-      <button className="reset-credits linklike" onClick={() => setConfirming(true)}>
-        {credits.available} reset {plural}
-        {soonest && <span className="faint"> · expires {dateFmt.format(soonest)}</span>}
-      </button>
+      <div className="reset-credits">
+        <span className="muted">
+          {credits.available} reset {plural}
+          {soonest && <span className="faint"> · expires {dateFmt.format(soonest)}</span>}
+        </span>
+        <button className="btn btn-small" onClick={() => setConfirming(true)}>
+          <RotateCcw size={12} /> Use reset…
+        </button>
+      </div>
 
       <ConfirmDialog
         open={confirming}
