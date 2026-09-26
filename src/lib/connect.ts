@@ -141,13 +141,15 @@ done
 // Served at <dashboard>/connect/import: sends this machine's Claude Code and
 // Codex usage history to the dashboard. Only usage fields leave the machine
 // (timestamps, model, session id, token counts), never prompts or code.
+// Over the local network the upload needs a proxy key: `| sh -s -- <key>`.
 export function importScript(dashboardOrigin: string): string {
   return `#!/bin/sh
 # CLIProxy history import: sends Claude Code and Codex usage (token counts only) to the dashboard.
 set -e
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
+export CLIPROXY_KEY="\${1:-}"
 python3 - <<'CLIPROXY_PY'
-import glob, json, os, urllib.request
+import glob, json, os, sys, urllib.error, urllib.request
 
 def keep_claude(r):
     m = r.get("message") or {}
@@ -184,8 +186,21 @@ for tool, root, keep in sources:
         if lines:
             files.append({"tool": tool, "lines": lines})
 
-req = urllib.request.Request("${dashboardOrigin}/api/import", data=json.dumps({"files": files}).encode(), headers={"Content-Type": "application/json"})
-res = json.load(urllib.request.urlopen(req))
+headers = {"Content-Type": "application/json"}
+if os.environ.get("CLIPROXY_KEY"):
+    headers["Authorization"] = "Bearer " + os.environ["CLIPROXY_KEY"]
+req = urllib.request.Request("${dashboardOrigin}/api/import", data=json.dumps({"files": files}).encode(), headers=headers)
+try:
+    res = json.load(urllib.request.urlopen(req))
+except urllib.error.HTTPError as e:
+    if e.code == 401:
+        sys.exit("The dashboard needs one of your proxy API keys: ... | sh -s -- <key>")
+    sys.exit("Import failed: HTTP %d %s" % (e.code, e.read().decode(errors="replace")[:200]))
+except urllib.error.URLError as e:
+    # Without a key the server refuses before reading the upload, which looks like a dropped connection.
+    if not os.environ.get("CLIPROXY_KEY"):
+        sys.exit("The dashboard needs one of your proxy API keys: ... | sh -s -- <key>")
+    sys.exit("Couldn't reach the dashboard: %s" % e.reason)
 print("Imported %d requests from %d files as %s (%d already imported, %d skipped as already collected live)." % (res["imported"], len(files), res["machineIp"], res["alreadyImported"], res["afterCutoff"]))
 CLIPROXY_PY
 `
