@@ -1,7 +1,7 @@
 // Fetches and normalizes per-account quota windows from the upstream usage
 // endpoints, via the proxy's /api-call (which substitutes the account token).
 
-import { upstreamGet, type AuthFile } from './api'
+import { upstreamCall, upstreamGet, type AuthFile } from './api'
 
 const HOUR = 3600e3
 const WEEK = 168 * HOUR
@@ -14,7 +14,10 @@ export type QuotaWindow = {
   periodMs: number
 }
 
-export type Quota = { windows: QuotaWindow[]; plan?: string }
+// Codex "reset credits": each one resets the account's usage limits once.
+export type ResetCredits = { available: number; expiresAtMs: number[] }
+
+export type Quota = { windows: QuotaWindow[]; plan?: string; resetCredits?: ResetCredits }
 
 export const providerOf = (f: AuthFile) => (f.provider ?? f.type ?? '').toLowerCase()
 
@@ -124,6 +127,7 @@ type CodexRateLimit = {
 } | null
 
 type CodexUsage = {
+  rate_limit_reset_credits?: { available_count?: number }
   plan_type?: string
   rate_limit?: CodexRateLimit
   additional_rate_limits?: { limit_name?: string; rate_limit?: CodexRateLimit }[] | null
@@ -151,7 +155,7 @@ function codexWindows(rl: CodexRateLimit, prefix: string): QuotaWindow[] {
   })
 }
 
-async function codexQuota(f: AuthFile): Promise<Quota> {
+function codexHeaders(f: AuthFile): Record<string, string> {
   const header: Record<string, string> = {
     Authorization: 'Bearer $TOKEN$',
     'Content-Type': 'application/json',
@@ -159,8 +163,48 @@ async function codexQuota(f: AuthFile): Promise<Quota> {
   }
   const accountId = f.id_token?.chatgpt_account_id
   if (accountId) header['Chatgpt-Account-Id'] = accountId
-  const usage = (await upstreamGet(f.auth_index, 'https://chatgpt.com/backend-api/wham/usage', header)) as CodexUsage
+  return header
+}
+
+const RESET_CREDITS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits'
+
+type CreditsPayload = { credits?: { reset_type?: string; status?: string; expires_at?: string }[] }
+
+// Expiry dates of available credits; optional, so failures just mean no dates.
+async function creditExpiries(f: AuthFile): Promise<number[]> {
+  try {
+    const body = (await upstreamGet(f.auth_index, RESET_CREDITS_URL, {
+      ...codexHeaders(f),
+      Accept: 'application/json',
+      'OpenAI-Beta': 'codex-1',
+      Originator: 'Codex Desktop',
+    })) as CreditsPayload
+    return (body.credits ?? [])
+      .filter((c) => c.reset_type === 'codex_rate_limits' && c.status === 'available' && c.expires_at)
+      .map((c) => Date.parse(c.expires_at!))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b)
+  } catch {
+    return []
+  }
+}
+
+// Spends one reset credit. Irreversible; the UI confirms first.
+export async function spendResetCredit(f: AuthFile) {
+  await upstreamCall(
+    f.auth_index,
+    'POST',
+    `${RESET_CREDITS_URL}/consume`,
+    codexHeaders(f),
+    JSON.stringify({ redeem_request_id: crypto.randomUUID() }),
+  )
+}
+
+async function codexQuota(f: AuthFile): Promise<Quota> {
+  const usage = (await upstreamGet(f.auth_index, 'https://chatgpt.com/backend-api/wham/usage', codexHeaders(f))) as CodexUsage
+  const available = usage.rate_limit_reset_credits?.available_count ?? 0
   return {
+    resetCredits: { available, expiresAtMs: available > 0 ? await creditExpiries(f) : [] },
     windows: [
       ...codexWindows(usage.rate_limit ?? null, ''),
       ...(usage.additional_rate_limits ?? []).flatMap((a) => codexWindows(a.rate_limit ?? null, `${a.limit_name ?? 'Extra'} `)),

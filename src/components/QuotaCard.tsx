@@ -9,6 +9,7 @@ import { accountName, useStore } from '../lib/store'
 import { ActivityChart } from './ActivityChart'
 import type { AccountActivity } from '../lib/usage'
 import { ProviderMark } from './ProviderMark'
+import { ResetCredits } from './ResetCredits'
 import { Switch } from './ui'
 
 function level(remaining: number) {
@@ -112,6 +113,9 @@ export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActi
             {windows.map((w) => (
               <WindowRow key={w.id} w={w} now={now} />
             ))}
+            {state?.quota?.resetCredits && (
+              <ResetCredits file={file} credits={state.quota.resetCredits} windows={windows} onSpent={() => refreshQuota(file)} />
+            )}
           </>
         )}
       </div>

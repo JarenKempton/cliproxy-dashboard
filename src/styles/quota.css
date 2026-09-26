@@ -511,3 +511,22 @@
   height: 12px;
   background: var(--accent);
 }
+
+/* Codex reset credits */
+.reset-credits {
+  align-self: flex-start;
+  text-decoration: none;
+  color: var(--fg-2);
+}
+
+.reset-credits:hover {
+  text-decoration: underline;
+}
+
+.reset-warning {
+  margin-top: 10px !important;
+}
+
+.dialog-body p + p {
+  margin-top: 8px;
+}

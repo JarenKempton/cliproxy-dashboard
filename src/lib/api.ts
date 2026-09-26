@@ -102,9 +102,18 @@ export const setDisabled = (name: string, disabled: boolean) =>
 
 export const deleteAuthFile = (name: string) => request('DELETE', `/auth-files${q({ name })}`)
 
-// Sends a GET to an upstream provider using the credential's own token.
-export async function upstreamGet(authIndex: string, url: string, header: Record<string, string>): Promise<unknown> {
-  const res = (await request('POST', '/api-call', { body: { authIndex, method: 'GET', url, header } })) as {
+export const upstreamGet = (authIndex: string, url: string, header: Record<string, string>) =>
+  upstreamCall(authIndex, 'GET', url, header)
+
+// Sends a request to an upstream provider using the credential's own token.
+export async function upstreamCall(
+  authIndex: string,
+  method: 'GET' | 'POST',
+  url: string,
+  header: Record<string, string>,
+  data?: string,
+): Promise<unknown> {
+  const res = (await request('POST', '/api-call', { body: { authIndex, method, url, header, data } })) as {
     status_code: number
     body: unknown
     header?: Record<string, string[]>

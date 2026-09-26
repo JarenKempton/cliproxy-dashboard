@@ -25,7 +25,17 @@ const QUOTA_URLS = new Set([
   'https://api.anthropic.com/api/oauth/usage',
   'https://api.anthropic.com/api/oauth/profile',
   'https://chatgpt.com/backend-api/wham/usage',
+  'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits',
 ])
+
+// The one upstream write the dashboard makes: spending a Codex reset credit.
+const CODEX_RESET_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume'
+
+function isCodexReset(v: Record<string, unknown>) {
+  if (String(v.method).toUpperCase() !== 'POST' || v.url !== CODEX_RESET_URL) return false
+  const data = json(String(v.data ?? ''))
+  return !!data && typeof data.redeem_request_id === 'string' && Object.keys(data).length === 1
+}
 
 // Scalar settings, set with a `{ "value": ... }` body.
 const SETTINGS =
@@ -56,7 +66,8 @@ const WRITE_RULES: Rule[] = [
     path: /^\/api-call$/,
     check: (b) => {
       const v = json(b)
-      return !!v && String(v.method).toUpperCase() === 'GET' && QUOTA_URLS.has(String(v.url)) && !v.data
+      if (!v) return false
+      return (String(v.method).toUpperCase() === 'GET' && QUOTA_URLS.has(String(v.url)) && !v.data) || isCodexReset(v)
     },
   },
   {
@@ -164,8 +175,17 @@ function managementGuard(env: Record<string, string>, target: string, state: { l
         if (!allowWrites && !rule!.check(body, searchParams)) return deny(403, `Blocked by dev guard: request to ${pathname} is outside the allowlist`)
 
         let cacheKey: string | null = null
-        if (pathname === '/api-call') {
-          const v = json(body)!
+        const apiCall = pathname === '/api-call' ? json(body)! : null
+        // A reset changes that account's quota: forget its cached readings.
+        if (apiCall && isCodexReset(apiCall)) {
+          for (const k of [...quotaCache.keys(), ...quotaBlocked.keys()]) {
+            if (k.startsWith(`${apiCall.authIndex ?? apiCall.auth_index}|`)) {
+              quotaCache.delete(k)
+              quotaBlocked.delete(k)
+            }
+          }
+        } else if (apiCall) {
+          const v = apiCall
           cacheKey = `${v.authIndex ?? v.auth_index}|${v.url}`
           const hit = quotaCache.get(cacheKey)
           if (hit && Date.now() - hit.at < QUOTA_TTL_MS) return reply(200, hit.body)
