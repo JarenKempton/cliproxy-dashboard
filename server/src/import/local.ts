@@ -18,7 +18,11 @@ const claudeDirs = process.env.CLAUDE_CONFIG_DIR
 
 const SOURCES: { tool: TranscriptFile['tool']; dir: string }[] = [
   ...claudeDirs.map((dir) => ({ tool: 'claude-code' as const, dir: join(dir, 'projects') })),
-  { tool: 'codex', dir: join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions') },
+  // Codex moves older sessions to archived_sessions.
+  ...['sessions', 'archived_sessions'].map((dir) => ({
+    tool: 'codex' as const,
+    dir: join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), dir),
+  })),
 ]
 
 function readTranscripts(tool: TranscriptFile['tool'], dir: string): TranscriptFile[] {

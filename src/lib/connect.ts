@@ -141,7 +141,7 @@ done
 // Python that collects this machine's Claude Code and Codex usage into `files`,
 // keeping only usage fields (timestamps, model, session id, token counts),
 // never prompts or code. Shared by the import and export scripts.
-const COLLECT_USAGE_PY = `import glob, json, os, sys, urllib.error, urllib.request
+const COLLECT_USAGE_PY = `import json, os, sys, urllib.error, urllib.request
 
 def keep_claude(r):
     m = r.get("message") or {}
@@ -164,11 +164,21 @@ home = os.path.expanduser("~")
 # Claude Code uses ~/.claude, or ~/.config/claude on newer installs; duplicates are
 # dropped on import, so reading both is safe.
 claude_dirs = [os.environ["CLAUDE_CONFIG_DIR"]] if os.environ.get("CLAUDE_CONFIG_DIR") else [home + "/.claude", home + "/.config/claude"]
+codex_home = os.environ.get("CODEX_HOME", home + "/.codex")
 sources = [("claude-code", os.path.join(d, "projects"), keep_claude) for d in claude_dirs]
-sources.append(("codex", os.path.join(os.environ.get("CODEX_HOME", home + "/.codex"), "sessions"), keep_codex))
+sources += [("codex", os.path.join(codex_home, d), keep_codex) for d in ("sessions", "archived_sessions")]
+
+# Walks folders rather than using a glob pattern: asterisks tend to get eaten
+# when this is copied out of chat apps as Markdown.
+def jsonl_files(root):
+    for folder, _, names in sorted(os.walk(root)):
+        for name in sorted(names):
+            if name.endswith(".jsonl"):
+                yield os.path.join(folder, name)
+
 files = []
 for tool, root, keep in sources:
-    for path in sorted(glob.glob(root + "/**/*.jsonl", recursive=True)):
+    for path in jsonl_files(root):
         lines = []
         with open(path, errors="replace") as f:
             for line in f:
