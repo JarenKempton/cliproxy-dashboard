@@ -201,14 +201,23 @@ function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsa
 
   return (
     <>
-      <tr className={open ? 'uexpand open' : 'uexpand'}>
+      <tr
+        className={open ? 'uexpand open' : 'uexpand'}
+        // The whole row toggles, except the name, which is for renaming.
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest('.udev, .udev-input')) setOpen(!open)
+        }}
+      >
         <td>
           <span className="ucell-name">
             <button
               className="uchevron"
               aria-expanded={open}
               aria-label={`${open ? 'Hide' : 'Show'} models for ${machine.name}`}
-              onClick={() => setOpen(!open)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setOpen(!open)
+              }}
             >
               <ChevronRight size={14} />
             </button>
@@ -229,13 +238,19 @@ function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsa
                   <ProviderMark of={m.tool} size={12} />
                   <span className="mono">{m.model}</span>
                 </span>
-                <div className="usub-bar">
-                  <div style={{ width: `${share * 100}%` }} />
-                </div>
               </td>
               <td className="mono num">{unknown ? <span className="faint">Unpriced</span> : formatUsd(m.costMicros)}</td>
               <td className="mono num faint ushare" title="Share of this machine">
-                {unknown && metric === 'cost' ? '—' : formatPercent(share)}
+                {unknown && metric === 'cost' ? (
+                  '—'
+                ) : (
+                  <span className="usub-share">
+                    <span className="usub-bar">
+                      <span style={{ width: `${share * 100}%` }} />
+                    </span>
+                    {formatPercent(share)}
+                  </span>
+                )}
               </td>
               <td className="mono num">{formatTokens(m.processedTokens)}</td>
             </tr>
