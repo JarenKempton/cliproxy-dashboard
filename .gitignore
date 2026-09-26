@@ -25,3 +25,6 @@ dist-ssr
 
 # config.yaml snapshots (contain secrets)
 .backups
+
+# usage database and price cache
+data/

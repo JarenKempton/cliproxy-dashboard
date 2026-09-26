@@ -294,7 +294,7 @@ function connectEndpoints(env: Record<string, string>, target: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), 'CPA_')
+  const env = loadEnv(mode, process.cwd(), ['CPA_', 'USAGE_'])
   const target = env.CPA_TARGET || 'http://localhost:8317'
   const state = { locked: false }
 
@@ -310,6 +310,8 @@ export default defineConfig(({ mode }) => {
       // e.g. a `tailscale serve` name (tailnet-only).
       allowedHosts: (env.CPA_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean),
       proxy: {
+        // Usage server (server/): collected usage, machines, prices.
+        '/api': { target: `http://127.0.0.1:${env.USAGE_SERVER_PORT || 5174}` },
         [MANAGEMENT_PREFIX]: {
           target,
           changeOrigin: true,

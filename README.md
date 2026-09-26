@@ -19,3 +19,18 @@ The bridge (see `vite.config.ts`):
 - stops forwarding after a single 401 until restart, since the proxy bans an IP for ~30 min after 5 failed key attempts
 
 Nothing here changes the proxy itself or its config.
+
+## Usage server
+
+`server/` collects CLIProxyAPI's per-request usage records into SQLite (`data/usage.db`) and prices them with LiteLLM's public price table.
+Bun + Hono + Drizzle.
+
+```sh
+npm run server          # run in the foreground
+npm run db:generate     # after editing server/src/db/schema.ts
+npm run server:check    # type-check
+```
+
+It runs permanently under launchd (`server/launchd/dev.cliproxy.usage-server.plist`, logs in `data/server.log`).
+It must be the only consumer of the proxy's usage queue: reading a record removes it.
+Requires `usage-statistics-enabled: true` in the proxy config; `redis-usage-queue-retention-seconds: 3600` keeps up to an hour of records if the server is down.
