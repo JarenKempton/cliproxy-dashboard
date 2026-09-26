@@ -1,6 +1,6 @@
 // Client for the usage server (server/), reached through the dev server's /api proxy.
 
-export type Range = '24h' | '7d' | '30d' | '90d'
+export type Range = '24h' | '7d' | '30d' | '90d' | 'all'
 
 export type Totals = {
   costMicros: number

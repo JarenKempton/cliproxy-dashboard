@@ -329,6 +329,7 @@ export function UsagePage() {
             ['7d', '7 days'],
             ['30d', '30 days'],
             ['90d', '90 days'],
+            ['all', 'All time'],
           ]}
         />
       </PageHead>

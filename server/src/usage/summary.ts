@@ -5,16 +5,17 @@
 // - Cache savings = cache reads priced at (input rate − cache read rate).
 // - Unpriced = share of requests with no known price (not of tokens or dollars).
 // - Sessions = distinct session ids per tool with activity in the window.
-// - Days are the viewer's local days; "7d" means today and the 6 days before.
+// - Days are the viewer's local days; "7d" means today and the 6 days before;
+//   "all" starts on the day of the earliest stored request.
 
-import { and, eq, gte, isNotNull, sql } from 'drizzle-orm'
+import { and, eq, gte, isNotNull, min, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { Db } from '../db/client'
 import { machineIdentities, machines, requests, tailnetDevices } from '../db/schema'
 
-export type Range = '24h' | '7d' | '30d' | '90d'
-export const RANGES: Range[] = ['24h', '7d', '30d', '90d']
-const RANGE_DAYS: Record<Exclude<Range, '24h'>, number> = { '7d': 7, '30d': 30, '90d': 90 }
+export type Range = '24h' | '7d' | '30d' | '90d' | 'all'
+export const RANGES: Range[] = ['24h', '7d', '30d', '90d', 'all']
+const RANGE_DAYS: Record<'7d' | '30d' | '90d', number> = { '7d': 7, '30d': 30, '90d': 90 }
 const HOUR = 3600e3
 
 export type Totals = {
@@ -69,7 +70,7 @@ type Window = {
   keyOf: (ms: number) => number | string
 }
 
-function windowFor(range: Range, timeZone: string, now: number): Window {
+function windowFor(range: Range, timeZone: string, now: number, earliestMs: number | null): Window {
   if (range === '24h') {
     const currentHour = Math.floor(now / HOUR) * HOUR
     const startMs = currentHour - 23 * HOUR
@@ -83,10 +84,15 @@ function windowFor(range: Range, timeZone: string, now: number): Window {
 
   const dayOf = dayKeyFormatter(timeZone)
   const keys = [dayOf(now)]
-  while (keys.length < RANGE_DAYS[range]) keys.unshift(previousDay(keys[0]))
+  if (range === 'all') {
+    const firstDay = dayOf(earliestMs ?? now)
+    while (keys[0] > firstDay) keys.unshift(previousDay(keys[0]))
+  } else {
+    while (keys.length < RANGE_DAYS[range]) keys.unshift(previousDay(keys[0]))
+  }
 
   // First whole hour that falls on the first day of the window.
-  let startMs = Math.floor((now - RANGE_DAYS[range] * 86400e3) / HOUR) * HOUR
+  let startMs = Math.floor((now - (keys.length + 1) * 86400e3) / HOUR) * HOUR
   while (dayOf(startMs) < keys[0]) startMs += HOUR
   return { startMs, bucket: 'day', keys, keyOf: dayOf }
 }
@@ -112,7 +118,8 @@ const machine = {
 // --- Summary ---------------------------------------------------------------------
 
 export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.now()) {
-  const window = windowFor(range, timeZone, now)
+  const earliest = db.select({ at: min(requests.occurredAt) }).from(requests).get()?.at
+  const window = windowFor(range, timeZone, now, earliest ? earliest.getTime() : null)
   const inWindow = gte(requests.occurredAt, new Date(window.startMs))
 
   // One row per hour × tool × model × account × machine; everything else is
