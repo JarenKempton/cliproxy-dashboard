@@ -67,6 +67,8 @@ export function Timeline() {
         </div>
       </div>
 
+      {/* Scrolls sideways on narrow screens instead of squeezing the days. */}
+      <div className="tl-scroll">
       <div className="panel tl" style={{ '--days': span.days } as CSSProperties}>
         <div className="tl-row tl-header">
           <div className="tl-label eyebrow">Account</div>
@@ -141,6 +143,7 @@ export function Timeline() {
             <div className="tl-now" style={{ left: `${nowPct}%` }} />
           </div>
         )}
+      </div>
       </div>
 
       <div className="tl-legend mono faint">

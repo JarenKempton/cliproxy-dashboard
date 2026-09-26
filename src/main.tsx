@@ -9,6 +9,7 @@ import './styles/app.css'
 import './styles/pages.css'
 import './styles/quota.css'
 import './styles/usage.css'
+import './styles/mobile.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

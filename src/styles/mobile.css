@@ -1,0 +1,215 @@
+/* Phone layouts. Everything above 760px keeps the desktop layout. */
+
+/* Touch screens can't hover: keep hover-only affordances visible. */
+@media (hover: none) {
+  .udev-name svg {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  /* Shell: the sidebar becomes a sticky top bar with scrolling nav. */
+  .shell {
+    display: block;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .sidebar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar nav {
+    display: flex;
+    gap: 2px;
+  }
+
+  .brand {
+    padding: 0 8px 0 0;
+  }
+
+  .brand-text,
+  .nav-section,
+  .nav-count,
+  .sidebar-foot {
+    display: none;
+  }
+
+  .nav-link {
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+
+  .nav-link[aria-current='page']::before {
+    display: none;
+  }
+
+  /* Pages */
+  .page {
+    padding: 20px 16px 64px;
+  }
+
+  .page-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .page-actions {
+    flex-wrap: wrap;
+  }
+
+  .page-head .page-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .section-head {
+    flex-wrap: wrap;
+  }
+
+  .seg {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* Quota */
+  .qgrid {
+    grid-template-columns: 1fr;
+  }
+
+  .tl-scroll {
+    overflow-x: auto;
+  }
+
+  .tl {
+    min-width: 820px;
+    --label-w: 150px;
+  }
+
+  /* Usage */
+  .utop {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .uhero-cost {
+    font-size: 34px;
+  }
+
+  .utotals {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .utotal + .utotal {
+    border-left: none;
+  }
+
+  .utotal:nth-child(even) {
+    border-left: 1px solid var(--line);
+  }
+
+  .utotal:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .ucol-name {
+    width: auto;
+  }
+
+  /* Share is already in the tool rows; drop it to fit the table. */
+  .ushare {
+    display: none;
+  }
+
+  /* Accounts: name and status on top, stats and controls below. */
+  .arow {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    row-gap: 4px;
+  }
+
+  .arow-status {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .arow-stat {
+    display: none;
+  }
+
+  /* API keys: label, key and actions stack. */
+  .klist {
+    display: block;
+  }
+
+  .krow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .krow-label {
+    width: 100%;
+  }
+
+  .krow-key {
+    flex: 1;
+  }
+
+  .connect-machine {
+    flex-wrap: wrap;
+  }
+
+  .connect-machine .input {
+    width: 100%;
+  }
+
+  .connect-file {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .connect-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Config: label above control. */
+  .cfield {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .cfield-control {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .savebar {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .add-row {
+    flex-wrap: wrap;
+  }
+
+  .login-callback {
+    flex-direction: column;
+  }
+}

@@ -49,7 +49,7 @@ function Sidebar({ route }: { route: Route }) {
         <span className="brand-mark">
           <Zap size={13} strokeWidth={2.5} />
         </span>
-        CLIProxy
+        <span className="brand-text">CLIProxy</span>
       </div>
       {NAV.map((group) => (
         <nav key={group.section} aria-label={group.section}>

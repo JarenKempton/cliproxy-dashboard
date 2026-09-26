@@ -116,7 +116,7 @@ function CostCells({ row, total, metric }: { row: Totals; total: number; metric:
   return (
     <>
       <td className="mono num">{unknown ? <span className="faint">Unpriced</span> : formatUsd(row.costMicros)}</td>
-      <td className="mono num faint">{unknown && metric === 'cost' ? '—' : formatPercent(share)}</td>
+      <td className="mono num faint ushare">{unknown && metric === 'cost' ? '—' : formatPercent(share)}</td>
       <td className="mono num">{formatTokens(row.processedTokens)}</td>
     </>
   )
@@ -236,7 +236,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
         <tr>
           <th className="ucol-name">{heading}</th>
           <th className="num">Cost</th>
-          <th className="num">Share</th>
+          <th className="num ushare">Share</th>
           <th className="num">Tokens</th>
         </tr>
       </thead>
