@@ -138,18 +138,10 @@ done
 `
 }
 
-// Served at <dashboard>/connect/import: sends this machine's Claude Code and
-// Codex usage history to the dashboard. Only usage fields leave the machine
-// (timestamps, model, session id, token counts), never prompts or code.
-// Over the local network the upload needs a proxy key: `| sh -s -- <key>`.
-export function importScript(dashboardOrigin: string): string {
-  return `#!/bin/sh
-# CLIProxy history import: sends Claude Code and Codex usage (token counts only) to the dashboard.
-set -e
-command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
-export CLIPROXY_KEY="\${1:-}"
-python3 - <<'CLIPROXY_PY'
-import glob, json, os, sys, urllib.error, urllib.request
+// Python that collects this machine's Claude Code and Codex usage into `files`,
+// keeping only usage fields (timestamps, model, session id, token counts),
+// never prompts or code. Shared by the import and export scripts.
+const COLLECT_USAGE_PY = `import glob, json, os, sys, urllib.error, urllib.request
 
 def keep_claude(r):
     m = r.get("message") or {}
@@ -184,7 +176,19 @@ for tool, root, keep in sources:
                 if kept:
                     lines.append(json.dumps(kept))
         if lines:
-            files.append({"tool": tool, "lines": lines})
+            files.append({"tool": tool, "lines": lines})`
+
+// Served at <dashboard>/connect/import: sends this machine's usage history to
+// the dashboard. Over the local network the upload needs a proxy key:
+// `| sh -s -- <key>`.
+export function importScript(dashboardOrigin: string): string {
+  return `#!/bin/sh
+# CLIProxy history import: sends Claude Code and Codex usage (token counts only) to the dashboard.
+set -e
+command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
+export CLIPROXY_KEY="\${1:-}"
+python3 - <<'CLIPROXY_PY'
+${COLLECT_USAGE_PY}
 
 headers = {"Content-Type": "application/json"}
 if os.environ.get("CLIPROXY_KEY"):
@@ -204,6 +208,21 @@ except urllib.error.URLError as e:
 print("Imported %d requests from %d files as %s (%d already imported, %d skipped as already collected live)." % (res["imported"], len(files), res["machineIp"], res["alreadyImported"], res["afterCutoff"]))
 CLIPROXY_PY
 `
+}
+
+// For machines that can't reach the dashboard at all: writes the same
+// usage-only data to ~/cliproxy-usage-export.json, to copy over and import
+// with `bun server/src/import/file.ts`.
+export function exportScript(): string {
+  return `# CLIProxy usage export: writes Claude Code and Codex usage (token counts only) to ~/cliproxy-usage-export.json
+python3 - <<'CLIPROXY_PY'
+${COLLECT_USAGE_PY}
+
+out = os.path.join(home, "cliproxy-usage-export.json")
+with open(out, "w") as f:
+    json.dump({"files": files}, f)
+print("Wrote %s (%d files, %d usage lines). Copy it to the dashboard machine to import." % (out, len(files), sum(len(x["lines"]) for x in files)))
+CLIPROXY_PY`
 }
 
 export const CHANGED_FILES: Record<Tool, { path: string; what: string }> = {
