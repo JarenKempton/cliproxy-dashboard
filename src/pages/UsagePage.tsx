@@ -18,6 +18,7 @@ import {
   toolLabel,
   type MachineUsage,
   type Range,
+  type ToolUsage,
   type Totals,
   type UsageSummary,
 } from '../lib/usage'
@@ -49,15 +50,22 @@ function usePrefs() {
 
 // --- Pieces ------------------------------------------------------------------------
 
-function Hero({ summary }: { summary: UsageSummary }) {
+// The headline and per-tool rows follow the Cost/Tokens toggle: the chosen
+// metric leads, the other one moves to the secondary line.
+function Hero({ summary, metric }: { summary: UsageSummary; metric: Metric }) {
   const t = summary.totals
   const unpriced = t.records ? t.unpricedRecords / t.records : 0
+  const byCost = metric === 'cost'
+  const share = (tool: ToolUsage) =>
+    byCost ? (t.costMicros ? tool.costMicros / t.costMicros : 0) : t.processedTokens ? tool.processedTokens / t.processedTokens : 0
+
   return (
     <div className="uhero">
-      <div className="uhero-cost">{formatUsd(t.costMicros)}</div>
-      <div className="faint uhero-sub" title={unpriced > 0 ? 'Share of requests whose model has no known price; they count as $0.' : undefined}>
-        {formatCount(t.sessions)} sessions · API estimate
-        {unpriced > 0 && ` · ${formatPercent(unpriced)} unpriced`}
+      <div className="uhero-cost">{byCost ? formatUsd(t.costMicros) : formatTokens(t.processedTokens)}</div>
+      <div className="faint uhero-sub" title={byCost && unpriced > 0 ? 'Share of requests whose model has no known price; they count as $0.' : undefined}>
+        {formatCount(t.sessions)} sessions
+        {byCost && ' · API estimate'}
+        {byCost && unpriced > 0 && ` · ${formatPercent(unpriced)} unpriced`}
       </div>
 
       <div className="utools">
@@ -68,11 +76,11 @@ function Hero({ summary }: { summary: UsageSummary }) {
               <div className="utool-line">
                 <ProviderMark of={tool.tool} />
                 <span className="utool-name">{toolLabel(tool.tool)}</span>
-                <span className="mono utool-cost">{formatUsd(tool.costMicros)}</span>
+                <span className="mono utool-cost">{byCost ? formatUsd(tool.costMicros) : formatTokens(tool.processedTokens)}</span>
               </div>
               <div className="faint utool-sub">
-                {formatCount(tool.sessions)} sessions · {formatPercent(t.costMicros ? tool.costMicros / t.costMicros : 0)} of cost ·{' '}
-                {formatTokens(tool.processedTokens)} tokens
+                {formatCount(tool.sessions)} sessions · {formatPercent(share(tool))} of {byCost ? 'cost' : 'tokens'} ·{' '}
+                {byCost ? `${formatTokens(tool.processedTokens)} tokens` : formatUsd(tool.costMicros)}
               </div>
             </div>
           ))}
@@ -207,7 +215,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
                 <td className="mono">{bucketLabel(b.key, true)}</td>
                 {tools.map((t) => (
                   <td key={t} className="mono num faint">
-                    {b.tools[t] ? formatUsd(b.tools[t].costMicros) : '—'}
+                    {!b.tools[t] ? '—' : metric === 'cost' ? formatUsd(b.tools[t].costMicros) : formatTokens(b.tools[t].tokens)}
                   </td>
                 ))}
                 <td className="mono num">{formatUsd(cost)}</td>
@@ -300,7 +308,7 @@ export function UsagePage() {
     return () => clearInterval(timer)
   }, [load])
 
-  const chartTitle = `${summary?.bucket === 'hour' ? 'Hourly' : 'Daily'} ${prefs.metric === 'cost' ? 'cost' : 'tokens'}`
+  const chartTitle = `${summary?.bucket === 'hour' ? 'Hourly' : 'Daily'} ${prefs.metric === 'cost' ? 'cost' : 'processed tokens'}`
 
   return (
     <div className="page">
@@ -330,7 +338,7 @@ export function UsagePage() {
       {summary && (
         <>
           <div className="utop">
-            <Hero summary={summary} />
+            <Hero summary={summary} metric={prefs.metric} />
             <div>
               <div className="eyebrow utop-title">{chartTitle}</div>
               <UsageChart summary={summary} metric={prefs.metric} />
