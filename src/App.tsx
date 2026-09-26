@@ -1,4 +1,4 @@
-import { Gauge, KeyRound, Settings2, Users, Zap } from 'lucide-react'
+import { ChartColumn, Gauge, KeyRound, Settings2, Users, Zap } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Toaster } from './components/ui'
 import { proxyVersion } from './lib/api'
@@ -7,9 +7,11 @@ import { AccountsPage } from './pages/AccountsPage'
 import { ConfigPage } from './pages/ConfigPage'
 import { KeysPage } from './pages/KeysPage'
 import { QuotaPage } from './pages/QuotaPage'
+import { UsagePage } from './pages/UsagePage'
 
 const ROUTES = {
   quota: { label: 'Quota', icon: Gauge, page: QuotaPage },
+  usage: { label: 'Usage', icon: ChartColumn, page: UsagePage },
   accounts: { label: 'Accounts', icon: Users, page: AccountsPage },
   keys: { label: 'API keys', icon: KeyRound, page: KeysPage },
   config: { label: 'Config', icon: Settings2, page: ConfigPage },
@@ -17,7 +19,7 @@ const ROUTES = {
 type Route = keyof typeof ROUTES
 
 const NAV: { section: string; routes: Route[] }[] = [
-  { section: 'Monitor', routes: ['quota'] },
+  { section: 'Monitor', routes: ['quota', 'usage'] },
   { section: 'Manage', routes: ['accounts', 'keys', 'config'] },
 ]
 

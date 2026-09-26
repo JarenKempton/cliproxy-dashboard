@@ -81,6 +81,27 @@ export const machineIdentities = sqliteTable(
   (t) => [primaryKey({ columns: [t.kind, t.value] })],
 )
 
+// What each proxy key is for ("Primary", "CI"). Display only: unlike a
+// machine identity, a label never affects which machine requests belong to,
+// so a key shared by several machines can still be labeled.
+export const keyLabels = sqliteTable('key_labels', {
+  keyHash: text('key_hash').primaryKey(),
+  label: text('label').notNull(),
+})
+
+// Devices on the tailnet, synced from `tailscale status`, keyed by IP.
+// This machine is also listed under its loopback addresses, so requests
+// made locally get its name too.
+export const tailnetDevices = sqliteTable('tailnet_devices', {
+  ip: text('ip').primaryKey(),
+  name: text('name').notNull(), // first label of the MagicDNS name
+  dnsName: text('dns_name'),
+  os: text('os'),
+  isSelf: integer('is_self', { mode: 'boolean' }).notNull(),
+  online: integer('online', { mode: 'boolean' }),
+  syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 // Manual prices for models the public price table lacks or gets wrong.
 // Rates are micro-dollars per million tokens.
 export const priceOverrides = sqliteTable('price_overrides', {

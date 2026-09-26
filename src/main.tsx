@@ -8,6 +8,7 @@ import { StoreProvider } from './lib/store'
 import './styles/app.css'
 import './styles/pages.css'
 import './styles/quota.css'
+import './styles/usage.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

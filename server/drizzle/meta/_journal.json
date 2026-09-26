@@ -8,6 +8,20 @@
       "when": 1790381423796,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790382315107,
+      "tag": "0001_tailnet_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790382416397,
+      "tag": "0002_key_labels",
+      "breakpoints": true
     }
   ]
 }

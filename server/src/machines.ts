@@ -1,66 +1,100 @@
 // Naming the machines behind requests.
+//
+// A machine is recognized by an identity: the proxy key it uses (stored as a
+// short hash) or its IP. Identities you name are stored in machines /
+// machine_identities; unnamed tailnet IPs fall back to their Tailscale name.
 
-import { desc, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, notExists, sql } from 'drizzle-orm'
 import type { Db } from './db/client'
-import { machineIdentities, machines, requests } from './db/schema'
+import { machineIdentities, machines, requests, tailnetDevices } from './db/schema'
 
 export type IdentityKind = 'key' | 'ip'
 
-export function listMachines(db: Db) {
-  const rows = db
-    .select({ id: machines.id, name: machines.name, kind: machineIdentities.kind, value: machineIdentities.value })
-    .from(machines)
-    .leftJoin(machineIdentities, eq(machineIdentities.machineId, machines.id))
-    .orderBy(machines.name)
-    .all()
-
-  const byId = new Map<number, { id: number; name: string; identities: { kind: IdentityKind; value: string }[] }>()
-  for (const row of rows) {
-    const machine = byId.get(row.id) ?? { id: row.id, name: row.name, identities: [] }
-    if (row.kind && row.value) machine.identities.push({ kind: row.kind, value: row.value })
-    byId.set(row.id, machine)
-  }
-  return [...byId.values()]
+export type Device = {
+  kind: IdentityKind
+  value: string
+  name: string | null // effective name for this identity alone
+  nameSource: 'custom' | 'tailscale' | null
+  tailscale: { name: string; os: string | null; online: boolean | null; isSelf: boolean } | null
+  requests: number
+  costMicros: number
+  lastSeen: number | null
+  userAgent: string | null
 }
 
-// Keys and IPs seen in requests that aren't assigned to a machine yet.
-export function unassignedIdentities(db: Db) {
-  const seen = (column: typeof requests.clientKeyHash | typeof requests.clientIp, kind: IdentityKind) =>
+// Every identity that has sent requests or been named, with its name and activity.
+export function listDevices(db: Db): Device[] {
+  const activity = (column: typeof requests.clientKeyHash | typeof requests.clientIp) =>
     db
       .select({
-        kind: sql<IdentityKind>`${kind}`,
         value: sql<string>`${column}`,
         requests: sql<number>`count(*)`,
+        costMicros: sql<number>`coalesce(sum(${requests.costMicros}), 0)`,
         lastSeen: sql<number>`max(${requests.occurredAt})`,
-        userAgent: sql<string>`max(${requests.userAgent})`,
+        userAgent: sql<string | null>`max(${requests.userAgent})`,
       })
       .from(requests)
-      .leftJoin(machineIdentities, sql`${machineIdentities.kind} = ${kind} and ${machineIdentities.value} = ${column}`)
-      .where(sql`${isNotNull(column)} and ${machineIdentities.machineId} is null`)
+      .where(isNotNull(column))
       .groupBy(column)
-      .orderBy(desc(sql`max(${requests.occurredAt})`))
       .all()
 
-  return [...seen(requests.clientKeyHash, 'key'), ...seen(requests.clientIp, 'ip')]
+  const named = db
+    .select({ kind: machineIdentities.kind, value: machineIdentities.value, name: machines.name })
+    .from(machineIdentities)
+    .innerJoin(machines, eq(machines.id, machineIdentities.machineId))
+    .all()
+  const nameOf = new Map(named.map((n) => [`${n.kind}:${n.value}`, n.name]))
+  const tailnet = new Map(db.select().from(tailnetDevices).all().map((d) => [d.ip, d]))
+
+  const devices = new Map<string, Device>()
+  const upsert = (kind: IdentityKind, value: string, stats?: ReturnType<typeof activity>[number]) => {
+    const custom = nameOf.get(`${kind}:${value}`) ?? null
+    const ts = kind === 'ip' ? tailnet.get(value) : undefined
+    devices.set(`${kind}:${value}`, {
+      kind,
+      value,
+      name: custom ?? ts?.name ?? null,
+      nameSource: custom ? 'custom' : ts ? 'tailscale' : null,
+      tailscale: ts ? { name: ts.name, os: ts.os, online: ts.online, isSelf: ts.isSelf } : null,
+      requests: stats?.requests ?? 0,
+      costMicros: stats?.costMicros ?? 0,
+      lastSeen: stats?.lastSeen ?? null,
+      userAgent: stats?.userAgent ?? null,
+    })
+  }
+
+  for (const row of activity(requests.clientKeyHash)) upsert('key', row.value, row)
+  for (const row of activity(requests.clientIp)) upsert('ip', row.value, row)
+  for (const n of named) if (!devices.has(`${n.kind}:${n.value}`)) upsert(n.kind, n.value)
+
+  return [...devices.values()].sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0))
 }
 
-// Creates the machine if needed and attaches the identity to it.
-export function assignIdentity(db: Db, machineName: string, kind: IdentityKind, value: string) {
-  return db.transaction((tx) => {
-    const existing = tx.select().from(machines).where(eq(machines.name, machineName)).get()
-    const machine = existing ?? tx.insert(machines).values({ name: machineName, createdAt: new Date() }).returning().get()
+// Gives an identity a name. Identities sharing a name are one machine.
+export function nameIdentity(db: Db, kind: IdentityKind, value: string, name: string) {
+  db.transaction((tx) => {
+    const existing = tx.select().from(machines).where(eq(machines.name, name)).get()
+    const machine = existing ?? tx.insert(machines).values({ name, createdAt: new Date() }).returning().get()
     tx.insert(machineIdentities)
       .values({ kind, value, machineId: machine.id })
       .onConflictDoUpdate({ target: [machineIdentities.kind, machineIdentities.value], set: { machineId: machine.id } })
       .run()
-    return machine
+    deleteUnusedMachines(tx)
   })
 }
 
-export function renameMachine(db: Db, id: number, name: string) {
-  db.update(machines).set({ name }).where(eq(machines.id, id)).run()
+// Removes a custom name; the identity falls back to its Tailscale name or IP.
+export function clearIdentityName(db: Db, kind: IdentityKind, value: string) {
+  db.transaction((tx) => {
+    tx.delete(machineIdentities)
+      .where(and(eq(machineIdentities.kind, kind), eq(machineIdentities.value, value)))
+      .run()
+    deleteUnusedMachines(tx)
+  })
 }
 
-export function deleteMachine(db: Db, id: number) {
-  db.delete(machines).where(eq(machines.id, id)).run()
+function deleteUnusedMachines(tx: Pick<Db, 'delete' | 'select'>) {
+  tx.delete(machines)
+    .where(notExists(tx.select().from(machineIdentities).where(eq(machineIdentities.machineId, machines.id))))
+    .run()
 }

@@ -3,19 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { ConfirmDialog, copyText, PageHead, Segmented, toast } from '../components/ui'
 import { listApiKeys, putApiKeys } from '../lib/api'
 import { CHANGED_FILES, type Tool } from '../lib/connect'
-import { formatRelative } from '../lib/format'
-import { maskKey } from '../lib/format'
-
-// The proxy stores bare keys; names live in this browser until the dashboard
-// has a backend of its own.
-const LABELS_KEY = 'cpa:key-labels'
-const loadLabels = (): Record<string, string> => {
-  try {
-    return JSON.parse(localStorage.getItem(LABELS_KEY) ?? '{}')
-  } catch {
-    return {}
-  }
-}
+import { formatRelative, maskKey } from '../lib/format'
+import { dedicateKey, getDevices, getKeyLabels, hashKey, setKeyLabel } from '../lib/usage'
 
 function newKey() {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
@@ -57,48 +46,47 @@ experimental_bearer_token = "${key}"`)
   return parts.join('\n\n')
 }
 
+// Labels used to live in this browser; move any leftovers to the server once.
+const LEGACY_LABELS_KEY = 'cpa:key-labels'
+async function migrateLegacyLabels(serverLabels: Record<string, string>) {
+  const legacy = JSON.parse(localStorage.getItem(LEGACY_LABELS_KEY) ?? '{}') as Record<string, string>
+  for (const [key, label] of Object.entries(legacy)) {
+    if (label.trim() && !serverLabels[await hashKey(key)]) await setKeyLabel(key, label.trim())
+  }
+  localStorage.removeItem(LEGACY_LABELS_KEY)
+}
+
+type KeyInfo = { key: string; hash: string; label: string; machine: string | null }
+
 export function KeysPage() {
-  const [keys, setKeys] = useState<string[] | null>(null)
-  const [labels, setLabels] = useState(loadLabels)
+  const [keys, setKeys] = useState<KeyInfo[] | null>(null)
   const [revealed, setRevealed] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<KeyInfo | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [machine, setMachine] = useState('')
   const [base, setBase] = useState(() => endpoints().at(-1)![0])
   const [tools, setTools] = useState<Tools>('both')
   const [mode, setMode] = useState<'command' | 'manual'>('command')
-  const [setup, setSetup] = useState<{ code: string; expires: number; origin: string } | null>(null)
+  const [setup, setSetup] = useState<{ code: string; expires: number; origin: string; machine: string } | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
-  // A code is minted for one key/tools/address; changing any of them voids it.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSetup(null)
-  }, [selected, tools, base])
-
-  useEffect(() => {
-    if (!setup) return
-    const t = setInterval(() => setNow(Date.now()), 15e3)
-    return () => clearInterval(t)
-  }, [setup])
-
-  const createSetup = async (key: string) => {
-    try {
-      const res = await fetch('/connect/codes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, url: base, tools: TOOL_LIST[tools] }),
-      })
-      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? `HTTP ${res.status}`)
-      setSetup(await res.json())
-      setNow(Date.now())
-    } catch (err) {
-      toast(`Couldn’t create setup command: ${(err as Error).message}`)
-    }
-  }
-
+  // Proxy keys, joined with their labels and dedicated machines from the usage server.
   const load = useCallback(async () => {
     try {
-      setKeys(await listApiKeys())
+      const [raw, labels, devices] = await Promise.all([listApiKeys(), getKeyLabels(), getDevices()])
+      if (localStorage.getItem(LEGACY_LABELS_KEY)) {
+        await migrateLegacyLabels(labels)
+        return load()
+      }
+      const machineOf = new Map(devices.filter((d) => d.kind === 'key' && d.nameSource === 'custom').map((d) => [d.value, d.name]))
+      setKeys(
+        await Promise.all(
+          raw.map(async (key) => {
+            const hash = await hashKey(key)
+            return { key, hash, label: labels[hash] ?? '', machine: machineOf.get(hash) ?? null }
+          }),
+        ),
+      )
     } catch (err) {
       toast(`Couldn’t load keys: ${(err as Error).message}`)
     }
@@ -109,41 +97,80 @@ export function KeysPage() {
     load()
   }, [load])
 
-  const setLabel = (key: string, label: string) => {
-    const next = { ...labels, [key]: label }
-    setLabels(next)
-    localStorage.setItem(LABELS_KEY, JSON.stringify(next))
-  }
+  // A code is minted for one machine/tools/address; changing any of them voids it.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSetup(null)
+  }, [machine, tools, base])
+
+  useEffect(() => {
+    if (!setup) return
+    const t = setInterval(() => setNow(Date.now()), 15e3)
+    return () => clearInterval(t)
+  }, [setup])
+
+  const editLabel = (key: string, label: string) =>
+    setKeys((prev) => prev && prev.map((k) => (k.key === key ? { ...k, label } : k)))
+
+  const saveLabel = (info: KeyInfo) =>
+    setKeyLabel(info.key, info.label).catch((err) => toast(`Couldn’t save label: ${err.message}`))
 
   const add = async () => {
     if (!keys) return
     const key = newKey()
     try {
-      await putApiKeys([...keys, key])
+      await putApiKeys([...keys.map((k) => k.key), key])
       await load()
       setRevealed(key)
       setSelected(key)
-      toast('Key created — name it after the machine that will use it')
     } catch (err) {
       toast(`Couldn’t create key: ${(err as Error).message}`)
     }
   }
 
-  const confirmDelete = async () => {
-    const key = deleting
-    setDeleting(null)
-    if (!key || !keys) return
+  // Each machine gets its own key, so its usage is attributed to it and it can
+  // be revoked alone. Reconnecting a machine reuses its key.
+  const createSetup = async () => {
+    const name = machine.trim()
+    if (!keys || !name) return
     try {
-      await putApiKeys(keys.filter((k) => k !== key))
+      let key = keys.find((k) => k.machine === name)?.key
+      if (!key) {
+        key = newKey()
+        await putApiKeys([...keys.map((k) => k.key), key])
+        await setKeyLabel(key, name)
+        await dedicateKey(key, name)
+        await load()
+      }
+      const res = await fetch('/connect/codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, url: base, tools: TOOL_LIST[tools] }),
+      })
+      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? `HTTP ${res.status}`)
+      setSetup({ ...(await res.json()), machine: name })
+      setNow(Date.now())
+    } catch (err) {
+      toast(`Couldn’t create setup command: ${(err as Error).message}`)
+    }
+  }
+
+  const confirmDelete = async () => {
+    const target = deleting
+    setDeleting(null)
+    if (!target || !keys) return
+    try {
+      await putApiKeys(keys.filter((k) => k.key !== target.key).map((k) => k.key))
       await load()
-      if (selected === key) setSelected(null)
+      if (selected === target.key) setSelected(null)
       toast('Key deleted')
     } catch (err) {
       toast(`Couldn’t delete key: ${(err as Error).message}`)
     }
   }
 
-  const active = selected ?? keys?.[0] ?? null
+  const active = keys?.find((k) => k.key === selected) ?? keys?.[0] ?? null
+  const reusing = keys?.some((k) => k.machine === machine.trim())
 
   return (
     <div className="page">
@@ -157,33 +184,38 @@ export function KeysPage() {
       {keys && keys.length > 0 && (
         <div className="panel klist">
           {keys.map((k) => (
-            <div key={k} className={k === active ? 'krow selected' : 'krow'} onClick={() => setSelected(k)}>
+            <div key={k.key} className={k.key === active?.key ? 'krow selected' : 'krow'} onClick={() => setSelected(k.key)}>
               <input
                 className="input krow-label"
-                placeholder="Name (e.g. laptop)"
-                size={Math.max(18, (labels[k] ?? '').length + 2)}
-                value={labels[k] ?? ''}
+                placeholder="Label (e.g. Primary)"
+                size={Math.max(18, k.label.length + 2)}
+                value={k.label}
                 onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setLabel(k, e.target.value)}
+                onChange={(e) => editLabel(k.key, e.target.value)}
+                onBlur={() => saveLabel(k)}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
               />
-              <span className="mono krow-key">{revealed === k ? k : maskKey(k)}</span>
+              <span className="krow-key">
+                <span className="mono">{revealed === k.key ? k.key : maskKey(k.key)}</span>
+                {k.machine && <span className="tag">machine · {k.machine}</span>}
+              </span>
               <div className="page-actions">
                 <button
                   className="btn btn-ghost btn-icon"
-                  aria-label={revealed === k ? 'Hide key' : 'Show key'}
+                  aria-label={revealed === k.key ? 'Hide key' : 'Show key'}
                   onClick={(e) => {
                     e.stopPropagation()
-                    setRevealed(revealed === k ? null : k)
+                    setRevealed(revealed === k.key ? null : k.key)
                   }}
                 >
-                  {revealed === k ? <EyeOff size={14} /> : <Eye size={14} />}
+                  {revealed === k.key ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
                 <button
                   className="btn btn-ghost btn-icon"
                   aria-label="Copy key"
                   onClick={(e) => {
                     e.stopPropagation()
-                    copyText(k, 'Key copied')
+                    copyText(k.key, 'Key copied')
                   }}
                 >
                   <Copy size={14} />
@@ -206,11 +238,10 @@ export function KeysPage() {
         </div>
       )}
 
-      {active && (
+      {keys && (
         <section className="section">
           <div className="section-head">
             <h2>Connect a machine</h2>
-            <span className="mono faint">using {labels[active] || maskKey(active)}</span>
           </div>
           <div className="panel connect">
             <div className="connect-controls">
@@ -235,6 +266,21 @@ export function KeysPage() {
             </div>
             {mode === 'command' ? (
               <>
+                <div className="connect-machine">
+                  <label className="eyebrow" htmlFor="machine-name">
+                    Machine
+                  </label>
+                  <input
+                    id="machine-name"
+                    className="input"
+                    placeholder="e.g. laptop"
+                    value={machine}
+                    onChange={(e) => setMachine(e.target.value)}
+                  />
+                  <span className="faint">
+                    {machine.trim() ? (reusing ? 'reuses this machine’s key' : 'gets its own new key') : ''}
+                  </span>
+                </div>
                 <div className="connect-files">
                   {TOOL_LIST[tools].map((t) => (
                     <div key={t} className="connect-file">
@@ -245,7 +291,7 @@ export function KeysPage() {
                 </div>
                 {!setup || setup.expires < now ? (
                   <div className="connect-actions">
-                    <button className="btn btn-primary" onClick={() => createSetup(active)}>
+                    <button className="btn btn-primary" onClick={createSetup} disabled={!machine.trim()}>
                       {setup ? 'Create a new setup command' : 'Create setup command'}
                     </button>
                     <a className="btn btn-ghost" href="/connect" target="_blank" rel="noopener">
@@ -266,7 +312,7 @@ export function KeysPage() {
                       </button>
                     </div>
                     <div className="cmd-meta mono faint">
-                      single-use · expires {formatRelative(setup.expires, now)} ·{' '}
+                      for {setup.machine} · single-use · expires {formatRelative(setup.expires, now)} ·{' '}
                       <a href="/connect" target="_blank" rel="noopener">
                         view script
                       </a>
@@ -286,15 +332,18 @@ export function KeysPage() {
                 </p>
               </>
             ) : (
-              <>
-                <div className="connect-actions">
-                  <button className="btn" onClick={() => copyText(manualSnippet(TOOL_LIST[tools], base, active), 'Snippet copied')}>
-                    <Copy size={14} /> Copy
-                  </button>
-                </div>
-                <pre className="code">{manualSnippet(TOOL_LIST[tools], base, revealed === active ? active : maskKey(active))}</pre>
-                <p className="faint connect-note">Copy includes the full key.</p>
-              </>
+              active && (
+                <>
+                  <div className="connect-actions">
+                    <span className="mono faint">using {active.label || maskKey(active.key)}</span>
+                    <button className="btn" onClick={() => copyText(manualSnippet(TOOL_LIST[tools], base, active.key), 'Snippet copied')}>
+                      <Copy size={14} /> Copy
+                    </button>
+                  </div>
+                  <pre className="code">{manualSnippet(TOOL_LIST[tools], base, revealed === active.key ? active.key : maskKey(active.key))}</pre>
+                  <p className="faint connect-note">Copy includes the full key. Select a key above to use a different one.</p>
+                </>
+              )
             )}
           </div>
         </section>
@@ -305,8 +354,8 @@ export function KeysPage() {
         title="Delete this key?"
         body={
           <>
-            Anything still using <span className="mono">{deleting && (labels[deleting] || maskKey(deleting))}</span> will get
-            401 errors immediately. This Mac’s own Claude Code and Codex use one of these keys.
+            Anything still using <span className="mono">{deleting && (deleting.label || maskKey(deleting.key))}</span> will get
+            401 errors immediately.
           </>
         }
         confirmLabel="Delete key"

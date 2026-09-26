@@ -4,23 +4,34 @@
 import { Hono } from 'hono'
 import type { CliproxyCollector } from '../collector/cliproxy'
 import type { Db } from '../db/client'
-import { assignIdentity, deleteMachine, listMachines, renameMachine, unassignedIdentities } from '../machines'
+import { listKeyLabels, setKeyLabel } from '../keys'
+import { clearIdentityName, listDevices, nameIdentity, type IdentityKind } from '../machines'
+import type { Tailnet } from '../tailnet'
+import { hashKey } from '../usage/cliproxy-record'
 import type { PriceBook } from '../usage/pricing'
 import { recentRequests, usageOverview, type Range } from '../usage/queries'
 
 const RANGES: Range[] = ['24h', '7d', '30d']
 
-export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBook) {
+const isKind = (k: unknown): k is IdentityKind => k === 'key' || k === 'ip'
+
+export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBook, tailnet: Tailnet) {
   const app = new Hono().basePath('/api')
 
   app.get('/health', (c) =>
-    c.json({ collector: collector.status, pricesLoadedAt: prices.loadedAt }),
+    c.json({
+      collector: collector.status,
+      pricesLoadedAt: prices.loadedAt,
+      tailnet: { syncedAt: tailnet.syncedAt, error: tailnet.lastError },
+    }),
   )
 
   app.get('/usage', (c) => {
     const range = (c.req.query('range') ?? '24h') as Range
     if (!RANGES.includes(range)) return c.json({ error: `range must be one of ${RANGES.join(', ')}` }, 400)
-    return c.json(usageOverview(db, range))
+    // tz: the viewer's offset from UTC in minutes (east positive).
+    const tzOffsetMs = (Number(c.req.query('tz')) || 0) * 60e3
+    return c.json(usageOverview(db, range, tzOffsetMs))
   })
 
   app.get('/usage/requests', (c) => {
@@ -28,24 +39,41 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
     return c.json(recentRequests(db, limit))
   })
 
-  app.get('/machines', (c) => c.json({ machines: listMachines(db), unassigned: unassignedIdentities(db) }))
+  // Machines as seen by the proxy: proxy keys and client IPs, with names.
+  app.get('/devices', (c) => c.json(listDevices(db)))
 
-  // Body: { name, kind: 'key' | 'ip', value }
-  app.post('/machines/identities', async (c) => {
-    const { name, kind, value } = await c.req.json<{ name?: string; kind?: string; value?: string }>()
-    if (!name?.trim() || (kind !== 'key' && kind !== 'ip') || !value) return c.json({ error: 'name, kind and value are required' }, 400)
-    return c.json(assignIdentity(db, name.trim(), kind, value))
-  })
-
-  app.patch('/machines/:id', async (c) => {
-    const { name } = await c.req.json<{ name?: string }>()
-    if (!name?.trim()) return c.json({ error: 'name is required' }, 400)
-    renameMachine(db, Number(c.req.param('id')), name.trim())
+  // Body: { kind: 'key' | 'ip', value, name }. Identities with the same name are one machine.
+  app.put('/devices/name', async (c) => {
+    const { kind, value, name } = await c.req.json<{ kind?: string; value?: string; name?: string }>()
+    if (!isKind(kind) || !value || !name?.trim()) return c.json({ error: 'kind, value and name are required' }, 400)
+    nameIdentity(db, kind, value, name.trim())
     return c.json({ ok: true })
   })
 
-  app.delete('/machines/:id', (c) => {
-    deleteMachine(db, Number(c.req.param('id')))
+  // Body: { kind, value }. Falls back to the Tailscale name or IP.
+  app.delete('/devices/name', async (c) => {
+    const { kind, value } = await c.req.json<{ kind?: string; value?: string }>()
+    if (!isKind(kind) || !value) return c.json({ error: 'kind and value are required' }, 400)
+    clearIdentityName(db, kind, value)
+    return c.json({ ok: true })
+  })
+
+  // Key labels by key hash (the dashboard hashes keys the same way to match).
+  app.get('/keys/labels', (c) => c.json(listKeyLabels(db)))
+
+  // Body: { key, label }. An empty label removes it. Only a short hash is stored.
+  app.put('/keys/label', async (c) => {
+    const { key, label } = await c.req.json<{ key?: string; label?: string }>()
+    if (!key) return c.json({ error: 'key is required' }, 400)
+    setKeyLabel(db, hashKey(key), label?.trim() ?? '')
+    return c.json({ ok: true })
+  })
+
+  // Body: { key, name }. Marks a key as dedicated to one machine.
+  app.put('/keys/machine', async (c) => {
+    const { key, name } = await c.req.json<{ key?: string; name?: string }>()
+    if (!key || !name?.trim()) return c.json({ error: 'key and name are required' }, 400)
+    nameIdentity(db, 'key', hashKey(key), name.trim())
     return c.json({ ok: true })
   })
 

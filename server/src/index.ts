@@ -5,6 +5,7 @@ import { CliproxyCollector } from './collector/cliproxy'
 import { openDb } from './db/client'
 import { env } from './env'
 import { createApp } from './http/app'
+import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
 
 const db = openDb(env.databasePath)
@@ -19,6 +20,9 @@ const collector = new CliproxyCollector(db, prices, {
 })
 collector.start()
 
-const app = createApp(db, collector, prices)
+const tailnet = new Tailnet(db)
+tailnet.start()
+
+const app = createApp(db, collector, prices, tailnet)
 Bun.serve({ hostname: env.host, port: env.port, fetch: app.fetch })
 console.log(`[server] listening on http://${env.host}:${env.port}`)

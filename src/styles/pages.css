@@ -126,10 +126,11 @@
 }
 
 .krow-key {
-  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--fg-2);
 }
 
@@ -155,6 +156,18 @@
   line-height: 1.6;
   color: var(--fg-1);
   overflow-x: auto;
+}
+
+.connect-machine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 0;
+  font-size: 12px;
+}
+
+.connect-machine .input {
+  width: 220px;
 }
 
 .connect-files {
