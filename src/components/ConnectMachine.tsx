@@ -2,7 +2,7 @@
 // Each machine gets its own proxy key (reused if it reconnects), so its usage
 // is attributed to it and it can be revoked alone.
 
-import { Check, Copy } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { putApiKeys } from '../lib/api'
 import type { Tool } from '../lib/connect'
@@ -101,14 +101,16 @@ export function ConnectMachine({ keys, onKeysChanged }: { keys: KeyInfo[]; onKey
         />
 
         <span className="eyebrow">Tools</span>
+        {/* Same look as the Network control, but each tool toggles on its own. */}
         <div className="connect-options">
-          {TOOLS.map(([tool, label]) => (
-            <button key={tool} className="chip" aria-pressed={tools.includes(tool)} onClick={() => toggleTool(tool)}>
-              <span className="chip-check">{tools.includes(tool) && <Check size={11} strokeWidth={3} />}</span>
-              <ProviderMark of={tool} size={13} />
-              {label}
-            </button>
-          ))}
+          <div className="seg seg-multi" role="group" aria-label="Tools">
+            {TOOLS.map(([tool, label]) => (
+              <button key={tool} aria-pressed={tools.includes(tool)} onClick={() => toggleTool(tool)}>
+                <ProviderMark of={tool} size={12} />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <span className="eyebrow">Network</span>

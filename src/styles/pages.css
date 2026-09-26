@@ -153,42 +153,16 @@
   gap: 8px;
 }
 
-.chip {
+.seg-multi button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 12px 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--fg-2);
-  font-size: 13px;
+  gap: 7px;
 }
 
-.chip:hover {
-  color: var(--fg-1);
-}
-
-.chip[aria-pressed='true'] {
-  border-color: var(--fg-3);
-  background: var(--bg-raised);
-  color: var(--fg);
-}
-
-.chip-check {
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 3px;
-}
-
-.chip[aria-pressed='true'] .chip-check {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-ink);
+/* Unselected tools read as off, logo included. */
+.seg-multi button[aria-pressed='false'] .mark {
+  opacity: 0.4;
+  filter: grayscale(1);
 }
 
 .connect-result {
