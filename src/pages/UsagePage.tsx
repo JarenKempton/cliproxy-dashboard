@@ -55,9 +55,9 @@ function Hero({ summary }: { summary: UsageSummary }) {
   return (
     <div className="uhero">
       <div className="uhero-cost">{formatUsd(t.costMicros)}</div>
-      <div className="mono faint uhero-sub">
+      <div className="faint uhero-sub" title={unpriced > 0 ? 'Share of requests whose model has no known price; they count as $0.' : undefined}>
         {formatCount(t.sessions)} sessions · API estimate
-        {unpriced > 0 && ` excludes ${formatPercent(unpriced)} unpriced requests`}
+        {unpriced > 0 && ` · ${formatPercent(unpriced)} unpriced`}
       </div>
 
       <div className="utools">
@@ -68,11 +68,11 @@ function Hero({ summary }: { summary: UsageSummary }) {
               <div className="utool-line">
                 <ProviderMark of={tool.tool} />
                 <span className="utool-name">{toolLabel(tool.tool)}</span>
-                <span className="mono faint utool-sessions">{formatCount(tool.sessions)} sessions</span>
                 <span className="mono utool-cost">{formatUsd(tool.costMicros)}</span>
               </div>
-              <div className="mono faint utool-sub">
-                {formatPercent(t.costMicros ? tool.costMicros / t.costMicros : 0)} of cost · {formatTokens(tool.processedTokens)} tokens
+              <div className="faint utool-sub">
+                {formatCount(tool.sessions)} sessions · {formatPercent(t.costMicros ? tool.costMicros / t.costMicros : 0)} of cost ·{' '}
+                {formatTokens(tool.processedTokens)} tokens
               </div>
             </div>
           ))}
