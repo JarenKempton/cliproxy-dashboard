@@ -4,12 +4,12 @@
 import { RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import type { AuthFile } from '../lib/api'
-import { formatStamp } from '../lib/format'
 import { spendResetCredit, type QuotaWindow, type ResetCredits as Credits } from '../lib/quota'
 import { accountName } from '../lib/store'
 import { ConfirmDialog, toast } from './ui'
 
 const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+const listFmt = new Intl.ListFormat('en-US', { type: 'conjunction' })
 
 export function ResetCredits({
   file,
@@ -50,7 +50,11 @@ export function ResetCredits({
       <div className="reset-credits">
         <span className="muted">
           {credits.available} reset {plural}
-          {soonest && <span className="faint"> · expires {dateFmt.format(soonest)}</span>}
+          {soonest && (
+            <span className="faint">
+              {' '}· {credits.available > 1 ? 'next expires' : 'expires'} {dateFmt.format(soonest)}
+            </span>
+          )}
         </span>
         <button className="btn btn-small" onClick={() => setConfirming(true)}>
           <RotateCcw size={12} /> Use reset…
@@ -73,7 +77,9 @@ export function ResetCredits({
               </p>
             )}
             {credits.expiresAtMs.length > 0 && (
-              <p className="faint">Credits expire {credits.expiresAtMs.map((t) => formatStamp(t)).join(', ')}.</p>
+              <p className="faint">
+                {credits.expiresAtMs.length === 1 ? 'It expires' : 'They expire'} {listFmt.format(credits.expiresAtMs.map((t) => dateFmt.format(t)))}.
+              </p>
             )}
           </>
         }
