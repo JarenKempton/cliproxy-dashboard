@@ -60,7 +60,8 @@ function ErrorBlock({ error, now, stale }: { error: QuotaError; now: number; sta
   )
 }
 
-export function QuotaCard({ file, activity }: { file: AuthFile; activity?: AccountActivity }) {
+// `inUse` is set on the one account serving requests right now.
+export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActivity }) {
   const { quotas, now, busy, toggle, refreshQuota } = useStore()
   const state = quotas[file.auth_index]
   const status = accountStatus(file, now)
@@ -69,7 +70,7 @@ export function QuotaCard({ file, activity }: { file: AuthFile; activity?: Accou
 
   return (
     <article
-      className={['panel qcard', file.disabled && 'off', activity && 'in-use', !file.disabled && state?.error && 'has-error']
+      className={['panel qcard', file.disabled && 'off', !file.disabled && state?.error && 'has-error']
         .filter(Boolean)
         .join(' ')}
     >
@@ -83,6 +84,14 @@ export function QuotaCard({ file, activity }: { file: AuthFile; activity?: Accou
         {state?.quota?.plan && (
           <span className="tag" title={provider === 'codex' ? `OpenAI plan_type: ${state.quota.plan}` : 'From the Anthropic account profile'}>
             {state.quota.plan}
+          </span>
+        )}
+        {inUse && (
+          <span
+            className="tag tag-live"
+            title={`Serving requests right now\n${inUse.machines.map((m) => `${m.name}: ${m.requests} in the last 5 min`).join('\n')}`}
+          >
+            in use
           </span>
         )}
         <Switch
@@ -110,16 +119,12 @@ export function QuotaCard({ file, activity }: { file: AuthFile; activity?: Accou
       {!file.disabled && file.recent_requests && <ActivityChart buckets={file.recent_requests} id={file.auth_index} />}
 
       <footer className="qcard-foot">
-        {/* Say something only when it matters: a problem, or live traffic. */}
+        {/* Say something only when there's a problem. */}
         {status.tone === 'warn' || status.tone === 'bad' ? (
           <span className={`qcard-status ${status.tone}`} title={status.text}>
             {status.text}
           </span>
-        ) : activity ? (
-          <span className="qcard-status in-use" title={activity.machines.map((m) => `${m.name}: ${m.requests} requests`).join('\n')}>
-            In use · {activity.machines.map((m) => m.name).join(', ')} · {activity.requests} in 5m
-          </span>
-        ) : (
+) : (
           <span className="qcard-status" />
         )}
         {state?.at && (

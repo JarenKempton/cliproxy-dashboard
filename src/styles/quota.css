@@ -214,13 +214,15 @@
   color: var(--fg-2);
 }
 
-/* Serving requests right now (see Quota page activity). */
-.qcard.in-use {
-  border-color: color-mix(in oklch, var(--accent) 45%, var(--line));
+/* The account serving requests right now. */
+.tag-live {
+  border-color: color-mix(in oklch, var(--accent) 50%, transparent);
+  color: var(--accent);
 }
 
-.qcard-status.in-use {
-  color: var(--fg-1);
+.qoff-note {
+  margin: 12px 0 0;
+  font-size: 12px;
 }
 
 .qcard-status.warn {
