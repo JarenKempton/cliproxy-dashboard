@@ -118,15 +118,27 @@ function TotalsRow({ totals }: { totals: Totals }) {
 }
 
 // Cost, share and tokens columns shared by every breakdown except Day.
+const isUnpriced = (row: Totals) => row.records > 0 && row.unpricedRecords >= row.records
+const shareOf = (row: Totals, total: number, metric: Metric) =>
+  total ? (metric === 'cost' ? row.costMicros : row.processedTokens) / total : 0
+
 function CostCells({ row, total, metric }: { row: Totals; total: number; metric: Metric }) {
-  const unknown = row.records > 0 && row.unpricedRecords >= row.records
-  const share = metric === 'cost' ? (total ? row.costMicros / total : 0) : total ? row.processedTokens / total : 0
+  const unknown = isUnpriced(row)
   return (
     <>
       <td className="mono num">{unknown ? <span className="faint">Unpriced</span> : formatUsd(row.costMicros)}</td>
-      <td className="mono num faint ushare">{unknown && metric === 'cost' ? '—' : formatPercent(share)}</td>
-      <td className="mono num">{formatTokens(row.processedTokens)}</td>
+      <td className="mono num faint ushare">{unknown && metric === 'cost' ? '—' : formatPercent(shareOf(row, total, metric))}</td>
+      <td className="mono num utokens">{formatTokens(row.processedTokens)}</td>
     </>
+  )
+}
+
+// Phones hide the Share and Tokens columns; this line under the name carries them.
+function RowMeta({ row, share }: { row: Totals; share: number }) {
+  return (
+    <div className="umeta mono faint">
+      {formatTokens(row.processedTokens)} tokens · {formatPercent(share)}
+    </div>
   )
 }
 
@@ -223,6 +235,7 @@ function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsa
             </button>
             <MachineName machine={machine} onChange={onChange} />
           </span>
+          <RowMeta row={machine} share={shareOf(machine, total, metric)} />
         </td>
         <CostCells row={machine} total={total} metric={metric} />
       </tr>
@@ -238,6 +251,7 @@ function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsa
                   <ProviderMark of={m.tool} size={12} />
                   <span className="mono">{m.model}</span>
                 </span>
+                <RowMeta row={m} share={share} />
               </td>
               <td className="mono num">{unknown ? <span className="faint">Unpriced</span> : formatUsd(m.costMicros)}</td>
               <td className="mono num faint ushare" title="Share of this machine">
@@ -252,7 +266,7 @@ function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsa
                   </span>
                 )}
               </td>
-              <td className="mono num">{formatTokens(m.processedTokens)}</td>
+              <td className="mono num utokens">{formatTokens(m.processedTokens)}</td>
             </tr>
           )
         })}
@@ -274,7 +288,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
           <tr>
             <th>{summary.bucket === 'hour' ? 'Hour' : 'Day'}</th>
             {tools.map((t) => (
-              <th key={t} className="num">
+              <th key={t} className="num utoolcol">
                 {toolLabel(t)}
               </th>
             ))}
@@ -290,7 +304,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
               <tr key={String(b.key)}>
                 <td className="mono">{bucketLabel(b.key, true)}</td>
                 {tools.map((t) => (
-                  <td key={t} className="mono num faint">
+                  <td key={t} className="mono num faint utoolcol">
                     {!b.tools[t] ? '—' : metric === 'cost' ? formatUsd(b.tools[t].costMicros) : formatTokens(b.tools[t].tokens)}
                   </td>
                 ))}
@@ -313,7 +327,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
           <th className="ucol-name">{heading}</th>
           <th className="num">Cost</th>
           <th className="num ushare">Share</th>
-          <th className="num">Tokens</th>
+          <th className="num utokens">Tokens</th>
         </tr>
       </thead>
       <tbody>
@@ -325,6 +339,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
                   <ProviderMark of={m.tool} />
                   <span className="mono">{m.model}</span>
                 </span>
+                <RowMeta row={m} share={shareOf(m, total, metric)} />
               </td>
               <CostCells row={m} total={total} metric={metric} />
             </tr>
@@ -334,7 +349,10 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
         {kind === 'account' &&
           sort(summary.byAccount).map((a) => (
             <tr key={a.name}>
-              <td>{a.name}</td>
+              <td>
+                {a.name}
+                <RowMeta row={a} share={shareOf(a, total, metric)} />
+              </td>
               <CostCells row={a} total={total} metric={metric} />
             </tr>
           ))}

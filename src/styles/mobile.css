@@ -146,9 +146,39 @@
     width: auto;
   }
 
-  /* Share is already in the tool rows; drop it to fit the table. */
-  .ushare {
+  /* Tables keep Cost on the right; tokens and share move under the name. */
+  .ushare,
+  .utokens,
+  .utoolcol,
+  .udev .tag {
     display: none;
+  }
+
+  .umeta {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .usub .umeta {
+    margin-left: 22px; /* under the model name, past the logo */
+  }
+
+  .uexpand .umeta {
+    margin-left: 24px; /* under the machine name, past the chevron */
+  }
+
+  .usub td:first-child {
+    padding-left: 34px;
+  }
+
+  .utable td {
+    white-space: normal;
+  }
+
+  .utable td.num {
+    white-space: nowrap;
+    vertical-align: top;
   }
 
   /* Accounts: name and status on top, stats and controls below. */
