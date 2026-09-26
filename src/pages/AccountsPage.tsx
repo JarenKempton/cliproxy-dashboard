@@ -1,5 +1,6 @@
 import { ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { ProviderMark } from '../components/ProviderMark'
 import { ConfirmDialog, PageHead, Switch, toast } from '../components/ui'
 import { cancelLogin, loginStatus, startLogin, submitLoginCallback, type AuthFile, type LoginProvider } from '../lib/api'
 import { formatRelative } from '../lib/format'
@@ -89,7 +90,6 @@ function AddAccount({ onDone }: { onDone: () => void }) {
   return (
     <div className="panel login">
       <div className="login-head">
-        <span className={`dot ${login.status === 'ok' ? 'good' : login.status === 'error' ? 'bad' : 'warn'}`} />
         <strong>
           {login.status === 'ok'
             ? `${LOGIN_LABEL[login.provider]} account added`
@@ -138,7 +138,7 @@ function AccountRow({ file, onRemove }: { file: AuthFile; onRemove: (f: AuthFile
   const lastUsed = file.last_refresh ? Date.parse(file.last_refresh) : null
   return (
     <div className="arow">
-      <span className={`dot ${provider}`} />
+      <ProviderMark of={provider} />
       <div className="arow-main">
         <div className="arow-name">{accountName(file)}</div>
         <div className="mono faint arow-sub">

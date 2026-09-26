@@ -3,6 +3,7 @@ import { useState, type CSSProperties } from 'react'
 import { formatStamp } from '../lib/format'
 import { accountName, providerOf, useStore } from '../lib/store'
 import { pickLaneWindow, projectLane, startOfDay, timelineSpan, type TimelineMode } from '../lib/timeline'
+import { ProviderMark } from './ProviderMark'
 import { Segmented } from './ui'
 
 const DAY_FMT = new Intl.DateTimeFormat([], { weekday: 'short' })
@@ -96,7 +97,7 @@ export function Timeline() {
             <div key={f.auth_index} className="tl-row">
               <div className="tl-label">
                 <div className="tl-name">
-                  <span className={`dot ${provider}`} />
+                  <ProviderMark of={provider} />
                   <span title={accountName(f)}>{accountName(f)}</span>
                 </div>
                 <div className="tl-limits mono">

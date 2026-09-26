@@ -3,7 +3,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { randomInt } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
-import { connectScript, undoScript } from './src/lib/connect.ts'
+import { connectScript, importScript, undoScript } from './src/lib/connect.ts'
 
 // Dev-only bridge to the live CLIProxyAPI management API.
 //
@@ -257,6 +257,7 @@ function connectEndpoints(env: Record<string, string>, target: string): Plugin {
 
         if (req.method === 'GET' && (pathname === '/' || pathname === '')) return send(200, connectScript(originOf(req)))
         if (req.method === 'GET' && pathname === '/undo') return send(200, undoScript())
+        if (req.method === 'GET' && pathname === '/import') return send(200, importScript(originOf(req)))
 
         if (req.method === 'GET' && pathname.startsWith('/claim/')) {
           while (claimFailures.length && claimFailures[0] < now - 60e3) claimFailures.shift()

@@ -90,8 +90,8 @@ export async function hashKey(key: string): Promise<string> {
 
 // Fixed order and colors, so a tool keeps its color whatever else is shown.
 const TOOLS: Record<string, { label: string; color: string }> = {
-  codex: { label: 'Codex', color: 'var(--fg-1)' },
-  'claude-code': { label: 'Claude Code', color: 'var(--accent)' },
+  codex: { label: 'Codex', color: 'var(--codex)' },
+  'claude-code': { label: 'Claude Code', color: 'var(--claude)' },
 }
 const TOOL_ORDER = Object.keys(TOOLS)
 

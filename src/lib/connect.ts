@@ -138,6 +138,59 @@ done
 `
 }
 
+// Served at <dashboard>/connect/import: sends this machine's Claude Code and
+// Codex usage history to the dashboard. Only usage fields leave the machine
+// (timestamps, model, session id, token counts), never prompts or code.
+export function importScript(dashboardOrigin: string): string {
+  return `#!/bin/sh
+# CLIProxy history import: sends Claude Code and Codex usage (token counts only) to the dashboard.
+set -e
+command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
+python3 - <<'CLIPROXY_PY'
+import glob, json, os, urllib.request
+
+def keep_claude(r):
+    m = r.get("message") or {}
+    if r.get("type") != "assistant" or "usage" not in m:
+        return None
+    return {"type": "assistant", "timestamp": r.get("timestamp"), "requestId": r.get("requestId"), "sessionId": r.get("sessionId"),
+            "message": {"id": m.get("id"), "model": m.get("model"), "usage": m.get("usage")}}
+
+def keep_codex(r):
+    t, p = r.get("type"), r.get("payload") or {}
+    if t == "session_meta":
+        return {"type": t, "timestamp": r.get("timestamp"), "payload": {k: p.get(k) for k in ("id", "session_id", "forked_from_id", "source")}}
+    if t == "turn_context":
+        return {"type": t, "payload": {"model": p.get("model")}}
+    if p.get("type") == "token_count":
+        return {"type": t, "timestamp": r.get("timestamp"), "payload": {"type": "token_count", "info": {"last_token_usage": (p.get("info") or {}).get("last_token_usage")}}}
+    return None
+
+home = os.path.expanduser("~")
+sources = [("claude-code", os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", home + "/.claude"), "projects"), keep_claude),
+           ("codex", os.path.join(os.environ.get("CODEX_HOME", home + "/.codex"), "sessions"), keep_codex)]
+files = []
+for tool, root, keep in sources:
+    for path in sorted(glob.glob(root + "/**/*.jsonl", recursive=True)):
+        lines = []
+        with open(path, errors="replace") as f:
+            for line in f:
+                try:
+                    kept = keep(json.loads(line))
+                except ValueError:
+                    continue
+                if kept:
+                    lines.append(json.dumps(kept))
+        if lines:
+            files.append({"tool": tool, "lines": lines})
+
+req = urllib.request.Request("${dashboardOrigin}/api/import", data=json.dumps({"files": files}).encode(), headers={"Content-Type": "application/json"})
+res = json.load(urllib.request.urlopen(req))
+print("Imported %d requests from %d files as %s (%d already imported, %d skipped as already collected live)." % (res["imported"], len(files), res["machineIp"], res["alreadyImported"], res["afterCutoff"]))
+CLIPROXY_PY
+`
+}
+
 export const CHANGED_FILES: Record<Tool, { path: string; what: string }> = {
   claude: { path: '~/.claude/settings.json', what: 'env.ANTHROPIC_BASE_URL, env.ANTHROPIC_AUTH_TOKEN' },
   codex: { path: '~/.codex/config.toml', what: 'model_provider, [model_providers.cliproxy]' },

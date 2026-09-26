@@ -7,6 +7,7 @@ import { PROVIDER_NAMES, providerOf, type QuotaWindow } from '../lib/quota'
 import { accountStatus } from '../lib/status'
 import { accountName, useStore } from '../lib/store'
 import { ActivityChart } from './ActivityChart'
+import { ProviderMark } from './ProviderMark'
 import { Switch } from './ui'
 
 function level(remaining: number) {
@@ -64,7 +65,9 @@ export function QuotaCard({ file }: { file: AuthFile }) {
   return (
     <article className={['panel qcard', file.disabled && 'off', !file.disabled && state?.error && 'has-error'].filter(Boolean).join(' ')}>
       <header className="qcard-head">
-        <span className={`dot ${provider}`} title={PROVIDER_NAMES[provider]} />
+        <span title={PROVIDER_NAMES[provider]}>
+          <ProviderMark of={provider} />
+        </span>
         <span className="qcard-name" title={accountName(file)}>
           {accountName(file)}
         </span>

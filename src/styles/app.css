@@ -24,9 +24,9 @@
   --warn: oklch(0.83 0.15 80);
   --bad: oklch(0.68 0.19 25);
 
-  /* Provider identity (lane dots, timeline bars). */
-  --claude: oklch(0.72 0.13 45);
-  --codex: oklch(0.72 0.12 285);
+  /* Provider identity: logos and each tool's chart series. */
+  --claude: #d97757;
+  --codex: var(--fg-1);
 
   /* Dot-matrix fills: one fine grid everywhere. */
   --dot: 0.45px;
@@ -411,12 +411,16 @@ select.input {
   background: var(--bad);
 }
 
-.dot.claude {
-  background: var(--claude);
+.mark {
+  flex: none;
 }
 
-.dot.codex {
-  background: var(--codex);
+.mark-claude {
+  color: var(--claude);
+}
+
+.mark-codex {
+  color: var(--codex);
 }
 
 .tag {

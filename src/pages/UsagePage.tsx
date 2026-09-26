@@ -3,6 +3,7 @@
 
 import { Pencil, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { ProviderMark } from '../components/ProviderMark'
 import { bucketLabel, UsageChart } from '../components/UsageChart'
 import { PageHead, Segmented, toast } from '../components/ui'
 import {
@@ -14,7 +15,6 @@ import {
   formatUsd,
   getUsage,
   nameDevice,
-  toolColor,
   toolLabel,
   type MachineUsage,
   type Range,
@@ -49,10 +49,6 @@ function usePrefs() {
 
 // --- Pieces ------------------------------------------------------------------------
 
-function ToolDot({ tool }: { tool: string }) {
-  return <span className="dot" style={{ background: toolColor(tool) }} />
-}
-
 function Hero({ summary }: { summary: UsageSummary }) {
   const t = summary.totals
   const unpriced = t.records ? t.unpricedRecords / t.records : 0
@@ -70,7 +66,7 @@ function Hero({ summary }: { summary: UsageSummary }) {
           .map((tool) => (
             <div key={tool.tool} className="utool">
               <div className="utool-line">
-                <ToolDot tool={tool.tool} />
+                <ProviderMark of={tool.tool} />
                 <span className="utool-name">{toolLabel(tool.tool)}</span>
                 <span className="mono faint utool-sessions">{formatCount(tool.sessions)} sessions</span>
                 <span className="mono utool-cost">{formatUsd(tool.costMicros)}</span>
@@ -242,7 +238,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
             <tr key={`${m.tool}:${m.model}`}>
               <td>
                 <span className="ucell-name">
-                  <ToolDot tool={m.tool} />
+                  <ProviderMark of={m.tool} />
                   <span className="mono">{m.model}</span>
                 </span>
               </td>

@@ -4,6 +4,7 @@
 import { Hono } from 'hono'
 import type { CliproxyCollector } from '../collector/cliproxy'
 import type { Db } from '../db/client'
+import { importTranscripts, type TranscriptFile } from '../import/importer'
 import { listKeyLabels, setKeyLabel } from '../keys'
 import { clearIdentityName, listDevices, nameIdentity, type IdentityKind } from '../machines'
 import type { Tailnet } from '../tailnet'
@@ -29,6 +30,17 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
     const range = (c.req.query('range') ?? '30d') as Range
     if (!RANGES.includes(range)) return c.json({ error: `range must be one of ${RANGES.join(', ')}` }, 400)
     return c.json(usageSummary(db, range, validTimeZone(c.req.query('tz'))))
+  })
+
+  // Body: { files: [{ tool: 'claude-code' | 'codex', lines: string[] }] }, usage-only
+  // transcript lines from another machine (see /connect/import). The sender's
+  // tailnet IP, forwarded by tailscale serve, says which machine it was.
+  app.post('/import', async (c) => {
+    const { files } = await c.req.json<{ files?: TranscriptFile[] }>()
+    if (!Array.isArray(files)) return c.json({ error: 'files is required' }, 400)
+    const valid = files.filter((f) => (f.tool === 'claude-code' || f.tool === 'codex') && Array.isArray(f.lines))
+    const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
+    return c.json({ machineIp: clientIp, ...importTranscripts(db, prices, valid, clientIp) })
   })
 
   // Machines as seen by the proxy: proxy keys and client IPs, with names.
