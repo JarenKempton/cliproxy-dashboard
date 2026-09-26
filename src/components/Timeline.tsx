@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { formatStamp } from '../lib/format'
 import { accountName, providerOf, useStore } from '../lib/store'
 import { pickLaneWindow, projectLane, startOfDay, timelineSpan, type TimelineMode } from '../lib/timeline'
@@ -10,11 +10,25 @@ const DAY_FMT = new Intl.DateTimeFormat([], { weekday: 'short' })
 const pad = (n: number) => String(n).padStart(2, '0')
 const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6
 
+// Matches the phone breakpoint in mobile.css.
+function useCompact() {
+  const query = '(max-width: 760px)'
+  const [compact, setCompact] = useState(() => matchMedia(query).matches)
+  useEffect(() => {
+    const mq = matchMedia(query)
+    const onChange = () => setCompact(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return compact
+}
+
 export function Timeline() {
   const { files, quotas, now } = useStore()
   const [mode, setMode] = useState<TimelineMode>('weekly')
   const [offset, setOffset] = useState(0)
-  const span = timelineSpan(mode, offset, now)
+  const compact = useCompact()
+  const span = timelineSpan(mode, offset, now, compact)
   const spanMs = span.endMs - span.startMs
 
   const days = Array.from({ length: span.days }, (_, i) => {
@@ -67,8 +81,6 @@ export function Timeline() {
         </div>
       </div>
 
-      {/* Scrolls sideways on narrow screens instead of squeezing the days. */}
-      <div className="tl-scroll">
       <div className="panel tl" style={{ '--days': span.days } as CSSProperties}>
         <div className="tl-row tl-header">
           <div className="tl-label eyebrow">Account</div>
@@ -111,6 +123,8 @@ export function Timeline() {
                 </div>
               </div>
               <div className="tl-track">
+                {/* Phones draw "now" per lane (labels sit between lanes there). */}
+                {nowPct > 0 && nowPct < 100 && <div className="tl-now tl-now-lane" style={{ left: `${nowPct}%` }} />}
                 {bars.map((b) => {
                   const remaining = b.used === null ? null : Math.max(0, 100 - b.used)
                   // Same color language as the quota bars: fine, low, nearly out.
@@ -123,7 +137,7 @@ export function Timeline() {
                       title={`${formatStamp(b.startMs)} → ${formatStamp(b.endMs)}`}
                     >
                       {b.used !== null && <div className="tl-bar-used" style={{ width: `${Math.min(100, b.used)}%` }} />}
-                      <span className="tl-bar-label mono">
+                      <span className={b.state === 'live' ? 'tl-bar-label mono' : 'tl-bar-label tl-bar-label-quiet mono'}>
                         {remaining !== null
                           ? `${Math.round(remaining)}%${w!.label.startsWith('Weekly') || w!.label === '5-hour' ? '' : ` ${w!.label}`} · ${formatStamp(b.endMs)}`
                           : b.state === 'next'
@@ -143,7 +157,6 @@ export function Timeline() {
             <div className="tl-now" style={{ left: `${nowPct}%` }} />
           </div>
         )}
-      </div>
       </div>
 
       <div className="tl-legend mono faint">

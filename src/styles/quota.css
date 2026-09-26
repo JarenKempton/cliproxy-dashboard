@@ -447,6 +447,10 @@
   pointer-events: none;
 }
 
+.tl-now-lane {
+  display: none;
+}
+
 .tl-now {
   position: absolute;
   top: 0;

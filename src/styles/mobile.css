@@ -99,13 +99,63 @@
     grid-template-columns: 1fr;
   }
 
-  .tl-scroll {
-    overflow-x: auto;
+  /* Quota windows: one week, each account's label above a full-width lane. */
+  .tl {
+    --label-w: 0px;
   }
 
-  .tl {
-    min-width: 820px;
-    --label-w: 150px;
+  .tl-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tl-header .tl-label {
+    display: none;
+  }
+
+  .tl-label {
+    padding: 12px 14px 0;
+    border-right: none;
+  }
+
+  .tl-limits {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    margin-top: 4px;
+    padding-left: 22px;
+  }
+
+  .tl-track {
+    min-height: 58px;
+  }
+
+  .tl-day {
+    padding: 6px 0;
+  }
+
+  .tl-day .mono {
+    font-size: 10px;
+  }
+
+  .tl-now-layer,
+  .tl-weekends {
+    display: none;
+  }
+
+  .tl-now-lane {
+    display: block;
+  }
+
+  .tl-now-lane::before {
+    display: none;
+  }
+
+  .tl-bar-label-quiet {
+    display: none;
+  }
+
+  .tl-legend {
+    gap: 6px 14px;
   }
 
   /* Usage */

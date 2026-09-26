@@ -46,8 +46,9 @@ export function startOfDay(ms: number) {
 
 // Weekly steps a week at a time from the containing Sunday; session a day at a
 // time from today. Date arithmetic keeps DST transitions from shifting days.
-export function timelineSpan(mode: TimelineMode, offset: number, now: number) {
-  const days = SPAN_DAYS[mode]
+// `compact` (phones) shows one week instead of two.
+export function timelineSpan(mode: TimelineMode, offset: number, now: number, compact = false) {
+  const days = compact && mode === 'weekly' ? 7 : SPAN_DAYS[mode]
   const base = new Date(startOfDay(now))
   if (mode === 'weekly') base.setDate(base.getDate() - base.getDay())
   base.setDate(base.getDate() + offset * (mode === 'weekly' ? 7 : 1))
