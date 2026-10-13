@@ -1,5 +1,4 @@
-// HTTP API for the dashboard. Bound to loopback; the dashboard reaches it
-// through the Vite dev server's /api proxy.
+// HTTP API for the dashboard, served by the usage server on loopback.
 
 import { Hono } from 'hono'
 import type { CliproxyCollector } from '../collector/cliproxy'

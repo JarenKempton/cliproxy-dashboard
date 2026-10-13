@@ -17,8 +17,12 @@ export const env = {
   proxyHost: proxy.hostname,
   proxyPort: Number(proxy.port || 8317),
 
-  // Loopback only: the dashboard reaches this through the Vite dev server.
-  host: '127.0.0.1',
+  // Writes beyond the dashboard's own actions; leave unset.
+  allowWrites: process.env.CPA_ALLOW_WRITES === '1',
+
+  // Serves the dashboard and carries the management key: keep it on loopback
+  // behind `tailscale serve`.
+  host: process.env.USAGE_SERVER_HOST ?? '127.0.0.1',
   port: Number(process.env.USAGE_SERVER_PORT ?? 5174),
 
   // Local-network listener (connect and history import) for machines without
@@ -26,6 +30,12 @@ export const env = {
   lanPort: Number(process.env.LAN_PORT ?? process.env.LAN_IMPORT_PORT ?? 5175),
   // Port `tailscale serve` exposes the dashboard on.
   tailnetDashboardPort: Number(process.env.TAILNET_DASHBOARD_PORT ?? 5443),
+  // Overrides when the dashboard and proxy are on different tailnet machines.
+  tailnetDashboardUrl: process.env.TAILNET_DASHBOARD_URL,
+  tailnetProxyUrl: process.env.TAILNET_PROXY_URL,
+
+  // Built dashboard (`npm run build`); served when present.
+  staticDir: process.env.DASHBOARD_DIST ?? 'dist',
 
   databasePath: process.env.USAGE_DB_PATH ?? 'data/usage.db',
   priceCachePath: process.env.PRICE_CACHE_PATH ?? 'data/litellm-prices.json',

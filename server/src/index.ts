@@ -5,8 +5,11 @@ import { CliproxyCollector } from './collector/cliproxy'
 import { openDb } from './db/client'
 import { env } from './env'
 import { Hono } from 'hono'
+import { serveStatic } from 'hono/bun'
+import { existsSync } from 'node:fs'
 import { createApp } from './http/app'
 import { connectApp } from './http/connect'
+import { MANAGEMENT_PREFIX, managementApp } from './http/management'
 import { startLanListener } from './http/lan'
 import { ProxyKeys } from './proxy-keys'
 import { Tailnet } from './tailnet'
@@ -38,12 +41,19 @@ const connect = {
   proxyPort: env.proxyPort,
   lanPort: env.lanPort,
   tailnetDashboardPort: env.tailnetDashboardPort,
+  tailnetDashboardUrl: env.tailnetDashboardUrl,
+  tailnetProxyUrl: env.tailnetProxyUrl,
 }
 
-// Loopback: the dashboard's /api and /connect (proxied by the dev server).
+// The dashboard, its /api and /connect, and the management bridge.
 const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
 app.route('/connect', connectApp(connect))
+app.route(MANAGEMENT_PREFIX, managementApp(env.proxyUrl, env.managementKey, env.allowWrites))
+if (existsSync(env.staticDir)) {
+  app.use('*', serveStatic({ root: env.staticDir }))
+  app.get('*', serveStatic({ path: `${env.staticDir}/index.html` }))
+}
 Bun.serve({ hostname: env.host, port: env.port, fetch: app.fetch })
 console.log(`[server] listening on http://${env.host}:${env.port}`)
 
