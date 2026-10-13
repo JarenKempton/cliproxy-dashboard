@@ -50,6 +50,8 @@ export type ConnectOptions = {
   proxyPort: number
   lanPort: number
   tailnetDashboardPort: number
+  tailnetDashboardUrl?: string
+  tailnetProxyUrl?: string
 }
 
 // Where machines reach the dashboard (for the script) and the proxy (for
@@ -60,7 +62,12 @@ export function networks(o: ConnectOptions): Record<Network, { dashboard: string
   const ip = lanAddress()
   return {
     // `tailscale serve` maps https://<host> to the proxy and :<port> to the dashboard.
-    tailnet: host ? { dashboard: `https://${host}:${o.tailnetDashboardPort}`, proxy: `https://${host}` } : null,
+    tailnet: host
+      ? {
+          dashboard: o.tailnetDashboardUrl ?? `https://${host}:${o.tailnetDashboardPort}`,
+          proxy: o.tailnetProxyUrl ?? `https://${host}`,
+        }
+      : null,
     lan: ip && o.lanPort ? { dashboard: `http://${ip}:${o.lanPort}`, proxy: `http://${ip}:${o.proxyPort}` } : null,
   }
 }
