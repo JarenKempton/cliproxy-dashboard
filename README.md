@@ -23,7 +23,9 @@ Nothing here changes the proxy itself or its config.
 
 ## Deploy
 
-Every push to `main` publishes `ghcr.io/jarenkempton/cliproxy-dashboard:main`.
+Every push to `main` publishes `ghcr.io/jarenkempton/cliproxy-dashboard:main`, then asks the deploy receiver
+(`deploy/hook.ts`, behind `hooks.jarenkempton.dev/deploy`) to redeploy the TrueNAS app and waits for it.
+Requests are signed with the `DEPLOY_SECRET` repo secret; the TrueNAS key stays on the server.
 `deploy/compose.yaml` runs it with a Tailscale sidecar that joins the tailnet as `cliproxy-dashboard`
 and serves the dashboard over HTTPS (`deploy/serve.json`). The sidecar's socket also lets the server name machines.
 
