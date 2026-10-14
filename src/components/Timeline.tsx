@@ -7,6 +7,8 @@ import { ProviderMark } from './ProviderMark'
 import { Segmented } from './ui'
 
 const DAY_FMT = new Intl.DateTimeFormat([], { weekday: 'short' })
+const HOUR_FMT = new Intl.DateTimeFormat([], { hour: 'numeric' })
+const HOURS_PER_TICK = 3
 const pad = (n: number) => String(n).padStart(2, '0')
 const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6
 
@@ -37,6 +39,14 @@ export function Timeline() {
     return d
   })
   const today = startOfDay(now)
+  const session = mode === 'session'
+  const ticks = session
+    ? Array.from({ length: 24 / HOURS_PER_TICK }, (_, i) => {
+        const d = new Date(span.startMs)
+        d.setHours(i * HOURS_PER_TICK)
+        return d
+      })
+    : days
   const nowPct = ((now - span.startMs) / spanMs) * 100
 
   const lanes = files
@@ -48,7 +58,8 @@ export function Timeline() {
     })
     .filter((l) => l.w)
 
-  const rangeLabel = `${pad(days[0].getMonth() + 1)}/${pad(days[0].getDate())} – ${pad(days[days.length - 1].getMonth() + 1)}/${pad(days[days.length - 1].getDate())}`
+  const dateLabel = (d: Date) => `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`
+  const rangeLabel = session ? `${DAY_FMT.format(days[0])} ${dateLabel(days[0])}` : `${dateLabel(days[0])} – ${dateLabel(days[days.length - 1])}`
 
   return (
     <section className="section">
@@ -81,18 +92,22 @@ export function Timeline() {
         </div>
       </div>
 
-      <div className="panel tl" style={{ '--days': span.days } as CSSProperties}>
+      <div className={session ? 'panel tl tl-session' : 'panel tl'} style={{ '--days': ticks.length } as CSSProperties}>
         <div className="tl-row tl-header">
           <div className="tl-label eyebrow">Account</div>
           <div className="tl-days">
-            {days.map((d) => (
-              <div key={d.getTime()} className={['tl-day', d.getTime() === today && 'today', isWeekend(d) && 'weekend'].filter(Boolean).join(' ')}>
-                <span className="eyebrow">{DAY_FMT.format(d)}</span>
-                <span className="mono">
-                  {pad(d.getMonth() + 1)}/{pad(d.getDate())}
-                </span>
-              </div>
-            ))}
+            {session
+              ? ticks.map((t) => (
+                  <div key={t.getTime()} className="tl-day tl-hour">
+                    <span className="mono">{HOUR_FMT.format(t)}</span>
+                  </div>
+                ))
+              : days.map((d) => (
+                  <div key={d.getTime()} className={['tl-day', d.getTime() === today && 'today', isWeekend(d) && 'weekend'].filter(Boolean).join(' ')}>
+                    <span className="eyebrow">{DAY_FMT.format(d)}</span>
+                    <span className="mono">{dateLabel(d)}</span>
+                  </div>
+                ))}
           </div>
         </div>
 
