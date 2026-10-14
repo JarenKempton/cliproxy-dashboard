@@ -14,8 +14,8 @@ export type Totals = {
   processedTokens: number
 }
 
-export type ToolUsage = Totals & { tool: string; sessions: number }
-export type ModelUsage = Totals & { tool: string; model: string }
+export type ProviderUsage = Totals & { provider: string; sessions: number }
+export type ModelUsage = Totals & { provider: string; model: string }
 export type MachineUsage = Totals & {
   name: string
   nameSource: 'custom' | 'tailscale' | null
@@ -29,11 +29,11 @@ export type UsageSummary = {
   timeZone: string
   bucket: 'hour' | 'day'
   totals: Totals & { sessions: number }
-  tools: ToolUsage[]
+  providers: ProviderUsage[]
   // One point per bucket: hour start (ms) or local day ("YYYY-MM-DD").
   series: {
     key: number | string
-    tools: Record<string, { costMicros: number; tokens: number }>
+    providers: Record<string, { costMicros: number; tokens: number }>
     machines: Record<string, { costMicros: number; tokens: number }>
   }[]
   byModel: ModelUsage[]
@@ -94,19 +94,21 @@ export async function hashKey(key: string): Promise<string> {
     .slice(0, 16)
 }
 
-// --- Tools -------------------------------------------------------------------------
+// --- Providers ---------------------------------------------------------------------
 
-// Fixed order and colors, so a tool keeps its color whatever else is shown.
-const TOOLS: Record<string, { label: string; color: string }> = {
-  codex: { label: 'Codex', color: 'var(--codex)' },
-  'claude-code': { label: 'Claude Code', color: 'var(--claude)' },
+// Fixed order and colors, so a provider keeps its color whatever else is shown.
+const PROVIDERS: Record<string, { label: string; color: string }> = {
+  openai: { label: 'OpenAI', color: 'var(--codex)' },
+  anthropic: { label: 'Anthropic', color: 'var(--claude)' },
+  gemini: { label: 'Google', color: '#5485c4' },
+  unknown: { label: 'Unknown', color: 'var(--fg-3)' },
 }
-const TOOL_ORDER = Object.keys(TOOLS)
+const PROVIDER_ORDER = Object.keys(PROVIDERS)
 
-export const toolLabel = (tool: string) => TOOLS[tool]?.label ?? tool
-export const toolColor = (tool: string) => TOOLS[tool]?.color ?? 'var(--fg-3)'
-export const byToolOrder = (a: string, b: string) =>
-  (TOOL_ORDER.indexOf(a) + 1 || 99) - (TOOL_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b)
+export const providerLabel = (provider: string) => PROVIDERS[provider]?.label ?? provider
+export const providerColor = (provider: string) => PROVIDERS[provider]?.color ?? 'var(--fg-3)'
+export const byProviderOrder = (a: string, b: string) =>
+  (PROVIDER_ORDER.indexOf(a) + 1 || 99) - (PROVIDER_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b)
 
 // --- Formatting (matches T3 Code) ---------------------------------------------------
 

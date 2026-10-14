@@ -4,7 +4,8 @@
 //   Reasoning is part of output, never added on top.
 // - Cache savings = cache reads priced at (input rate − cache read rate).
 // - Unpriced = share of requests with no known price (not of tokens or dollars).
-// - Sessions = distinct session ids per tool with activity in the window.
+// - Sessions = distinct client × session ids with activity in the window.
+//   A session using two providers appears in both rows, but once in the total.
 // - Days are the viewer's local days; "7d" means today and the 6 days before;
 //   "all" starts on the day of the earliest stored request.
 
@@ -122,15 +123,30 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
   const window = windowFor(range, timeZone, now, earliest ? earliest.getTime() : null)
   const inWindow = gte(requests.occurredAt, new Date(window.startMs))
 
-  // One row per hour × tool × model × account × machine; everything else is
+  // One row per hour × provider × model × account × machine; everything else is
   // built from these.
   const hour = sql<number>`(${requests.occurredAt} / ${HOUR}) * ${HOUR}`
-  const tool = sql<string>`coalesce(${requests.tool}, 'other')`
+  // The model identifies its vendor even when a client routes it through a
+  // different harness or an OpenAI-compatible endpoint. Resolve at query time
+  // so old transcript imports (whose provider came from the harness) work too.
+  const modelPath = sql`'/' || lower(trim(${requests.model}))`
+  const upstream = sql`lower(trim(${requests.provider}))`
+  const provider = sql<string>`case
+    when ${modelPath} glob '*/claude-*' then 'anthropic'
+    when ${modelPath} glob '*/gpt-*'
+      or ${modelPath} glob '*/chatgpt-*'
+      or ${modelPath} glob '*/o[1-9]' or ${modelPath} glob '*/o[1-9]-*' then 'openai'
+    when ${modelPath} glob '*/gemini-*' then 'gemini'
+    when ${upstream} in ('claude', 'anthropic') then 'anthropic'
+    when ${upstream} in ('codex', 'openai') then 'openai'
+    when ${upstream} in ('google', 'gemini') then 'gemini'
+    when ${upstream} in ('', 't3', 't3-code', 'claude-code', 'other', 'unknown') then 'unknown'
+    else ${upstream} end`
   const account = sql<string>`coalesce(${requests.accountLabel}, 'unknown')`
   const groups = db
     .select({
       hour,
-      tool,
+      provider,
       model: requests.model,
       account,
       ...machine,
@@ -150,23 +166,29 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
     .leftJoin(ipMachine, eq(ipMachine.id, byIp.machineId))
     .leftJoin(tailnetDevices, eq(tailnetDevices.ip, requests.clientIp))
     .where(inWindow)
-    .groupBy(hour, tool, requests.model, account, machine.name, machine.identityKind, machine.identityValue)
+    .groupBy(hour, provider, requests.model, account, machine.name, machine.identityKind, machine.identityValue)
     .all()
     .map((g) => ({ ...g, processedTokens: g.uncachedTokens + g.cachedTokens + g.cacheWriteTokens + g.outputTokens }))
 
+  const sessionIdentity = sql`json_array(coalesce(${requests.tool}, 'other'), ${requests.sessionId})`
   const sessions = db
-    .select({ tool, sessions: sql<number>`count(distinct ${requests.sessionId})` })
+    .select({ provider, sessions: sql<number>`count(distinct ${sessionIdentity})` })
     .from(requests)
     .where(and(inWindow, isNotNull(requests.sessionId)))
-    .groupBy(tool)
+    .groupBy(provider)
     .all()
-  const sessionsOf = new Map(sessions.map((s) => [s.tool, s.sessions]))
+  const sessionsOf = new Map(sessions.map((s) => [s.provider, s.sessions]))
+  const totalSessions = db
+    .select({ count: sql<number>`count(distinct ${sessionIdentity})` })
+    .from(requests)
+    .where(and(inWindow, isNotNull(requests.sessionId)))
+    .get()?.count ?? 0
 
   const totals = emptyTotals()
-  const tools = new Map<string, Totals>()
-  const models = new Map<string, Totals & { tool: string; model: string }>()
+  const providers = new Map<string, Totals>()
+  const models = new Map<string, Totals & { provider: string; model: string }>()
   const accounts = new Map<string, Totals & { name: string }>()
-  type ModelTotals = Totals & { tool: string; model: string }
+  type ModelTotals = Totals & { provider: string; model: string }
   const machinesByName = new Map<
     string,
     Totals & {
@@ -176,16 +198,16 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
       models: Map<string, ModelTotals> // this machine's usage per model
     }
   >()
-  // Per bucket: totals by tool and by machine name.
+  // Per bucket: totals by provider and by machine name.
   type Point = { costMicros: number; tokens: number }
-  const series = new Map<number | string, { tools: Map<string, Point>; machines: Map<string, Point> }>(
-    window.keys.map((k) => [k, { tools: new Map(), machines: new Map() }]),
+  const series = new Map<number | string, { providers: Map<string, Point>; machines: Map<string, Point> }>(
+    window.keys.map((k) => [k, { providers: new Map(), machines: new Map() }]),
   )
 
   for (const g of groups) {
     addTo(totals, g)
-    addTo(getOr(tools, g.tool, emptyTotals), g)
-    addTo(getOr(models, `${g.tool}\u0000${g.model}`, () => ({ ...emptyTotals(), tool: g.tool, model: g.model })), g)
+    addTo(getOr(providers, g.provider, emptyTotals), g)
+    addTo(getOr(models, `${g.provider}\u0000${g.model}`, () => ({ ...emptyTotals(), provider: g.provider, model: g.model })), g)
     addTo(getOr(accounts, g.account, () => ({ ...emptyTotals(), name: g.account })), g)
 
     const m = getOr(machinesByName, g.name, () => ({
@@ -196,14 +218,14 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
       models: new Map(),
     }))
     addTo(m, g)
-    addTo(getOr(m.models, `${g.tool}\u0000${g.model}`, () => ({ ...emptyTotals(), tool: g.tool, model: g.model })), g)
+    addTo(getOr(m.models, `${g.provider}\u0000${g.model}`, () => ({ ...emptyTotals(), provider: g.provider, model: g.model })), g)
     if (g.identityValue && !m.identities.some((i) => i.kind === g.identityKind && i.value === g.identityValue)) {
       m.identities.push({ kind: g.identityKind, value: g.identityValue })
     }
 
     const bucket = series.get(window.keyOf(g.hour))
     if (bucket) {
-      for (const point of [getOr(bucket.tools, g.tool, emptyPoint), getOr(bucket.machines, g.name, emptyPoint)]) {
+      for (const point of [getOr(bucket.providers, g.provider, emptyPoint), getOr(bucket.machines, g.name, emptyPoint)]) {
         point.costMicros += g.costMicros
         point.tokens += g.processedTokens
       }
@@ -216,9 +238,9 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
     range,
     timeZone,
     bucket: window.bucket,
-    totals: { ...totals, sessions: sessions.reduce((n, s) => n + s.sessions, 0) },
-    tools: [...tools].map(([name, t]) => ({ tool: name, sessions: sessionsOf.get(name) ?? 0, ...t })).sort(byCost),
-    series: [...series].map(([key, b]) => ({ key, tools: Object.fromEntries(b.tools), machines: Object.fromEntries(b.machines) })),
+    totals: { ...totals, sessions: totalSessions },
+    providers: [...providers].map(([name, t]) => ({ provider: name, sessions: sessionsOf.get(name) ?? 0, ...t })).sort(byCost),
+    series: [...series].map(([key, b]) => ({ key, providers: Object.fromEntries(b.providers), machines: Object.fromEntries(b.machines) })),
     byModel: [...models.values()].sort(byCost),
     byMachine: [...machinesByName.values()]
       .map((m) => ({ ...m, models: [...m.models.values()].sort(byCost) }))

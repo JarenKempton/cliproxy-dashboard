@@ -1,10 +1,10 @@
-// Cost (or tokens) over time, one overlapping area per tool, as in T3 Code's
+// Cost (or tokens) over time, one overlapping area per provider, as in T3 Code's
 // usage view: smooth monotone curves that never overshoot the data, larger
 // series painted first, a shared y-scale topped by the largest single value.
 // Fills use the dot-matrix pattern; strokes stay solid.
 
 import { useEffect, useRef, useState } from 'react'
-import { byToolOrder, formatTokens, formatUsd, toolColor, toolLabel, type UsageSummary } from '../lib/usage'
+import { byProviderOrder, formatTokens, formatUsd, providerColor, providerLabel, type UsageSummary } from '../lib/usage'
 
 const HEIGHT = 224
 const AXIS_W = 64 // y-axis label column
@@ -77,17 +77,15 @@ export function bucketLabel(key: number | string, long = false) {
 const MACHINE_COLORS = ['#5485c4', '#b58a3a', '#a65778', '#3e7232']
 const OTHER_COLOR = 'var(--fg-3)'
 
-const providerLabel = (tool: string) => (tool === 'claude-code' ? 'Claude' : toolLabel(tool))
-
 type Line = { id: string; label: string; color: string; values: number[] }
 export type ChartGroup = 'provider' | 'machine'
 
 function linesFor(summary: UsageSummary, by: ChartGroup, valueOf: (p?: { costMicros: number; tokens: number }) => number): Line[] {
   if (by === 'provider') {
-    return summary.tools
-      .map((t) => t.tool)
-      .sort(byToolOrder)
-      .map((tool) => ({ id: tool, label: providerLabel(tool), color: toolColor(tool), values: summary.series.map((b) => valueOf(b.tools[tool])) }))
+    return summary.providers
+      .map((t) => t.provider)
+      .sort(byProviderOrder)
+      .map((provider) => ({ id: provider, label: providerLabel(provider), color: providerColor(provider), values: summary.series.map((b) => valueOf(b.providers[provider])) }))
   }
 
   const all = summary.byMachine.map((m) => m.name) // biggest first
@@ -147,7 +145,7 @@ export function UsageChart({ summary, metric, by }: { summary: UsageSummary; met
 
   return (
     <div className="uchart">
-      {/* The provider view's legend is the per-tool list beside the chart. */}
+      {/* The provider view's legend is the per-provider list beside the chart. */}
       {by === 'machine' && (
         <div className="uchart-legend">
           {lines.map((l) => (

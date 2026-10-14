@@ -1,4 +1,4 @@
-// Usage: laid out like T3 Code's usage view (total, per-tool split, chart,
+// Usage: laid out like T3 Code's usage view (total, per-provider split, chart,
 // totals, breakdown), styled like the rest of this dashboard.
 
 import { ChevronRight, Pencil, RotateCcw } from 'lucide-react'
@@ -7,7 +7,7 @@ import { ProviderMark } from '../components/ProviderMark'
 import { bucketLabel, UsageChart, type ChartGroup } from '../components/UsageChart'
 import { PageHead, Segmented, toast } from '../components/ui'
 import {
-  byToolOrder,
+  byProviderOrder,
   clearDeviceName,
   formatCount,
   formatPercent,
@@ -15,10 +15,10 @@ import {
   formatUsd,
   getUsage,
   nameDevice,
-  toolLabel,
+  providerLabel,
   type MachineUsage,
   type Range,
-  type ToolUsage,
+  type ProviderUsage,
   type Totals,
   type UsageSummary,
 } from '../lib/usage'
@@ -44,7 +44,7 @@ function usePrefs() {
   const [prefs, setPrefs] = useState<Prefs>(() => {
     try {
       const saved = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
-      // "tool" was renamed "provider".
+      // Migrate the earlier chart preference.
       return saved.chartBy === 'tool' ? { ...saved, chartBy: 'provider' } : saved
     } catch {
       return DEFAULT_PREFS
@@ -60,14 +60,14 @@ function usePrefs() {
 
 // --- Pieces ------------------------------------------------------------------------
 
-// The headline and per-tool rows follow the Cost/Tokens toggle: the chosen
+// The headline and per-provider rows follow the Cost/Tokens toggle: the chosen
 // metric leads, the other one moves to the secondary line.
 function Hero({ summary, metric }: { summary: UsageSummary; metric: Metric }) {
   const t = summary.totals
   const unpriced = t.records ? t.unpricedRecords / t.records : 0
   const byCost = metric === 'cost'
-  const share = (tool: ToolUsage) =>
-    byCost ? (t.costMicros ? tool.costMicros / t.costMicros : 0) : t.processedTokens ? tool.processedTokens / t.processedTokens : 0
+  const share = (provider: ProviderUsage) =>
+    byCost ? (t.costMicros ? provider.costMicros / t.costMicros : 0) : t.processedTokens ? provider.processedTokens / t.processedTokens : 0
 
   return (
     <div className="uhero">
@@ -79,18 +79,18 @@ function Hero({ summary, metric }: { summary: UsageSummary; metric: Metric }) {
       </div>
 
       <div className="utools">
-        {[...summary.tools]
-          .sort((a, b) => byToolOrder(a.tool, b.tool))
-          .map((tool) => (
-            <div key={tool.tool} className="utool">
+        {[...summary.providers]
+          .sort((a, b) => byProviderOrder(a.provider, b.provider))
+          .map((provider) => (
+            <div key={provider.provider} className="utool">
               <div className="utool-line">
-                <ProviderMark of={tool.tool} />
-                <span className="utool-name">{toolLabel(tool.tool)}</span>
-                <span className="mono utool-cost">{byCost ? formatUsd(tool.costMicros) : formatTokens(tool.processedTokens)}</span>
+                <ProviderMark of={provider.provider} />
+                <span className="utool-name">{providerLabel(provider.provider)}</span>
+                <span className="mono utool-cost">{byCost ? formatUsd(provider.costMicros) : formatTokens(provider.processedTokens)}</span>
               </div>
               <div className="faint utool-sub">
-                {formatCount(tool.sessions)} sessions · {formatPercent(share(tool))} of {byCost ? 'cost' : 'tokens'} ·{' '}
-                {byCost ? `${formatTokens(tool.processedTokens)} tokens` : formatUsd(tool.costMicros)}
+                {formatCount(provider.sessions)} sessions · {formatPercent(share(provider))} of {byCost ? 'cost' : 'tokens'} ·{' '}
+                {byCost ? `${formatTokens(provider.processedTokens)} tokens` : formatUsd(provider.costMicros)}
               </div>
             </div>
           ))}
@@ -247,10 +247,10 @@ function MachineRows({ machine, total, metric, onChange }: { machine: MachineUsa
           const share = machineTotal ? value / machineTotal : 0
           const unknown = m.records > 0 && m.unpricedRecords >= m.records
           return (
-            <tr key={`${m.tool}:${m.model}`} className="usub">
+            <tr key={`${m.provider}:${m.model}`} className="usub">
               <td>
                 <span className="ucell-name usub-name">
-                  <ProviderMark of={m.tool} size={12} />
+                  <ProviderMark of={m.provider} size={12} />
                   <span className="mono">{m.model}</span>
                 </span>
                 <RowMeta row={m} share={share} />
@@ -282,16 +282,16 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
     metric === 'tokens' ? [...rows].sort((a, b) => b.processedTokens - a.processedTokens) : rows
 
   if (kind === 'day') {
-    const tools = summary.tools.map((t) => t.tool).sort(byToolOrder)
-    const rows = [...summary.series].reverse().filter((b) => Object.keys(b.tools).length > 0)
+    const providers = summary.providers.map((t) => t.provider).sort(byProviderOrder)
+    const rows = [...summary.series].reverse().filter((b) => Object.keys(b.providers).length > 0)
     return (
       <table className="utable">
         <thead>
           <tr>
             <th>{summary.bucket === 'hour' ? 'Hour' : 'Day'}</th>
-            {tools.map((t) => (
+            {providers.map((t) => (
               <th key={t} className="num utoolcol">
-                {toolLabel(t)}
+                {providerLabel(t)}
               </th>
             ))}
             <th className="num">Total</th>
@@ -300,14 +300,14 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
         </thead>
         <tbody>
           {rows.map((b) => {
-            const cost = tools.reduce((n, t) => n + (b.tools[t]?.costMicros ?? 0), 0)
-            const tokens = tools.reduce((n, t) => n + (b.tools[t]?.tokens ?? 0), 0)
+            const cost = providers.reduce((n, t) => n + (b.providers[t]?.costMicros ?? 0), 0)
+            const tokens = providers.reduce((n, t) => n + (b.providers[t]?.tokens ?? 0), 0)
             return (
               <tr key={String(b.key)}>
                 <td className="mono">{bucketLabel(b.key, true)}</td>
-                {tools.map((t) => (
+                {providers.map((t) => (
                   <td key={t} className="mono num faint utoolcol">
-                    {!b.tools[t] ? '—' : metric === 'cost' ? formatUsd(b.tools[t].costMicros) : formatTokens(b.tools[t].tokens)}
+                    {!b.providers[t] ? '—' : metric === 'cost' ? formatUsd(b.providers[t].costMicros) : formatTokens(b.providers[t].tokens)}
                   </td>
                 ))}
                 <td className="mono num">{formatUsd(cost)}</td>
@@ -315,7 +315,7 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
               </tr>
             )
           })}
-          {rows.length === 0 && <EmptyRow cols={tools.length + 3} />}
+          {rows.length === 0 && <EmptyRow cols={providers.length + 3} />}
         </tbody>
       </table>
     )
@@ -335,10 +335,10 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
       <tbody>
         {kind === 'model' &&
           sort(summary.byModel).map((m) => (
-            <tr key={`${m.tool}:${m.model}`}>
+            <tr key={`${m.provider}:${m.model}`}>
               <td>
                 <span className="ucell-name">
-                  <ProviderMark of={m.tool} />
+                  <ProviderMark of={m.provider} />
                   <span className="mono">{m.model}</span>
                 </span>
                 <RowMeta row={m} share={shareOf(m, total, metric)} />
