@@ -34,10 +34,17 @@ and serves the dashboard over HTTPS (`deploy/serve.json`). The sidecar's socket 
 `server/` collects CLIProxyAPI's per-request usage records into SQLite (`data/usage.db`) and prices them with LiteLLM's public price table.
 Bun + Hono + Drizzle.
 
+Usage groups by the served model's vendor (OpenAI, Anthropic, etc.), regardless of
+the client harness or proxy endpoint. For opaque model names it falls back to the
+upstream provider. Client/user-agent and routing information remain in the stored
+records. A session that uses multiple providers counts in each provider row and
+once in the overall session total.
+
 ```sh
 npm run server          # run in the foreground
 npm run db:generate     # after editing server/src/db/schema.ts
 npm run server:check    # type-check
+bun test server/src/usage/summary.test.ts # provider attribution regression tests
 ```
 
 In production the same process serves the built dashboard from `dist/`.
