@@ -538,3 +538,25 @@
 .dialog-body p + p {
   margin-top: 8px;
 }
+
+/* 5-hour view: one day, so each window has room for its label. */
+.tl-session .tl-hour {
+  justify-content: flex-end;
+}
+
+.tl-session .tl-hour .mono {
+  font-size: 12px;
+}
+
+.tl-session .tl-track {
+  min-height: 92px;
+}
+
+.tl-session .tl-bar {
+  height: 28px;
+  margin-top: -2px;
+}
+
+.tl-session .tl-bar-label {
+  font-size: 12px;
+}

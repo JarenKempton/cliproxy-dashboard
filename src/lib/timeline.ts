@@ -11,7 +11,7 @@ export const DAY_MS = 24 * HOUR_MS
 
 export type TimelineMode = 'weekly' | 'session'
 
-export const SPAN_DAYS: Record<TimelineMode, number> = { weekly: 14, session: 3 }
+export const SPAN_DAYS: Record<TimelineMode, number> = { weekly: 14, session: 1 }
 const SESSION_PERIOD_MS = 5 * HOUR_MS
 
 export type TimelineBar = {
