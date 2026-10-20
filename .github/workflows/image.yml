@@ -22,16 +22,18 @@ jobs:
           tags: |
             ghcr.io/jarenkempton/cliproxy-dashboard:main
             ghcr.io/jarenkempton/cliproxy-dashboard:${{ github.sha }}
-      - name: Deploy to trash-pro
+      - name: Deploy
+        if: vars.DEPLOY_HOOK_URL != ''
         env:
           DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
+          DEPLOY_HOOK_URL: ${{ vars.DEPLOY_HOOK_URL }}
         run: |
           body='{"app":"cliproxy-dashboard"}'
           ts=$(date +%s)
           sig=$(printf '%s' "$ts.$body" | openssl dgst -sha256 -hmac "$DEPLOY_SECRET" -hex | sed 's/.* //')
-          job=$(curl -fsS -H "X-Deploy-Timestamp: $ts" -H "X-Deploy-Signature: $sig" -d "$body" https://hooks.jarenkempton.dev/deploy | jq -r .job)
+          job=$(curl -fsS -H "X-Deploy-Timestamp: $ts" -H "X-Deploy-Signature: $sig" -d "$body" "$DEPLOY_HOOK_URL" | jq -r .job)
           for _ in $(seq 60); do
-            read -r state error < <(curl -fsS "https://hooks.jarenkempton.dev/deploy/jobs/$job" | jq -r '[.state, (.error // "")] | @tsv')
+            read -r state error < <(curl -fsS "$DEPLOY_HOOK_URL/jobs/$job" | jq -r '[.state, (.error // "")] | @tsv')
             case "$state" in
               SUCCESS) echo "deployed (job $job)"; exit 0 ;;
               FAILED|ABORTED) echo "deploy failed: $error"; exit 1 ;;

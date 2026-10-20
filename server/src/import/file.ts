@@ -1,5 +1,5 @@
 // Imports a usage export made on a machine that can't reach the dashboard:
-//   bun server/src/import/file.ts ~/Downloads/cliproxy-usage-export.json --ip 192.168.100.63
+//   bun server/src/import/file.ts ~/Downloads/cliproxy-usage-export.json --ip 192.168.1.20
 // The IP identifies the machine (rename it on the Usage page). Safe to re-run.
 
 import { readFileSync } from 'node:fs'

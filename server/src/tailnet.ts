@@ -1,5 +1,5 @@
 // Names machines from Tailscale: every tailnet IP maps to its device's
-// MagicDNS name (e.g. 100.118.213.21 → "goliath-omarchy").
+// MagicDNS name (e.g. 100.64.0.1 → "laptop").
 
 import { existsSync } from 'node:fs'
 import { hostname } from 'node:os'

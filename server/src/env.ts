@@ -27,7 +27,7 @@ export const env = {
 
   // Local-network listener (connect and history import) for machines without
   // Tailscale; 0 disables it.
-  lanPort: Number(process.env.LAN_PORT ?? process.env.LAN_IMPORT_PORT ?? 5175),
+  lanPort: Number(process.env.LAN_PORT ?? process.env.LAN_IMPORT_PORT ?? 0),
   // Port `tailscale serve` exposes the dashboard on.
   tailnetDashboardPort: Number(process.env.TAILNET_DASHBOARD_PORT ?? 5443),
   // Overrides when the dashboard and proxy are on different tailnet machines.

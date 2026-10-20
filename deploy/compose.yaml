@@ -24,7 +24,7 @@ services:
       - socket:/var/run/tailscale
 
   dashboard:
-    image: ghcr.io/jarenkempton/cliproxy-dashboard:main
+    image: ${IMAGE:-ghcr.io/jarenkempton/cliproxy-dashboard:main}
     network_mode: host
     restart: unless-stopped
     env_file: ${DATA}/env
