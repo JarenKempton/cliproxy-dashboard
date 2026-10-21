@@ -154,8 +154,6 @@
 }
 
 .seg-multi button {
-  display: inline-flex;
-  align-items: center;
   gap: 7px;
 }
 
