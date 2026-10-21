@@ -62,7 +62,7 @@ export const requests = sqliteTable(
   ],
 )
 
-// Named machines ("laptop", "goliath").
+// Named machines ("laptop", "desktop").
 export const machines = sqliteTable('machines', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull().unique(),
