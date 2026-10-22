@@ -62,6 +62,7 @@ function monotonePath(points: Point[]): string {
 // Day keys are already local dates ("YYYY-MM-DD"), so format them as-is (UTC);
 // hour keys are instants, shown in local time.
 const dayKeyFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+const weekdayFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' })
 const hourFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric' })
 const hourLongFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })
 
@@ -140,7 +141,8 @@ export function UsageChart({ summary, metric, by }: { summary: UsageSummary; met
     setHover(i >= 0 && i < count ? i : null)
   }
 
-  const labels = count ? [0, Math.floor((count - 1) / 2), count - 1] : []
+  const showWeekdays = summary.range === '7d'
+  const labels = showWeekdays ? summary.series.map((_, i) => i) : count ? [0, Math.floor((count - 1) / 2), count - 1] : []
   const hovered = hover === null ? null : summary.series[hover]
 
   return (
@@ -216,7 +218,9 @@ export function UsageChart({ summary, metric, by }: { summary: UsageSummary; met
       </div>
       <div className="uchart-x mono">
         {labels.map((i) => (
-          <span key={i}>{bucketLabel(summary.series[i].key)}</span>
+          <span key={i}>
+            {showWeekdays ? weekdayFmt.format(new Date(`${summary.series[i].key}T00:00:00Z`)) : bucketLabel(summary.series[i].key)}
+          </span>
         ))}
       </div>
     </div>
