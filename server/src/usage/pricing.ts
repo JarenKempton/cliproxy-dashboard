@@ -40,7 +40,7 @@ type LiteLlmEntry = {
 const perMTok = (usdPerToken: number) => Math.round(usdPerToken * 1e12)
 
 // Providers whose own list prices we prefer when a model appears under several.
-const FIRST_PARTY = ['anthropic', 'openai']
+const FIRST_PARTY = ['anthropic', 'openai', 'meta']
 
 // Placeholder or alias names that don't identify a billable model.
 const NEVER_PRICED = new Set(['<synthetic>', 'synthetic', 'opus', 'sonnet', 'haiku', 'fable'])

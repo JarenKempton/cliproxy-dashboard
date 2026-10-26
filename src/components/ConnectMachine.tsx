@@ -20,6 +20,7 @@ export type KeyInfo = { key: string; label: string; machine: string | null }
 const TOOLS: [Tool, string][] = [
   ['claude', 'Claude Code'],
   ['codex', 'Codex'],
+  ['muse', 'Muse Code'],
 ]
 
 function newKey() {

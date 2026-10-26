@@ -134,10 +134,12 @@ export async function upstreamCall(
 
 // --- Login (OAuth) -----------------------------------------------------------
 
-export type LoginProvider = 'anthropic' | 'codex'
+export type LoginProvider = 'anthropic' | 'codex' | 'meta'
 
-export async function startLogin(provider: LoginProvider): Promise<{ url: string; state: string }> {
-  return (await request('GET', `/${provider}-auth-url${q({ is_webui: 'true' })}`)) as { url: string; state: string }
+export type LoginStart = { url: string; state: string; flow?: string; user_code?: string }
+
+export async function startLogin(provider: LoginProvider): Promise<LoginStart> {
+  return (await request('GET', `/${provider}-auth-url${q({ is_webui: 'true' })}`)) as LoginStart
 }
 
 export async function loginStatus(state: string): Promise<{ status: 'ok' | 'wait' | 'error'; error?: string }> {

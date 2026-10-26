@@ -27,6 +27,7 @@
   /* Provider identity: logos and each tool's chart series. */
   --claude: #d97757;
   --codex: var(--fg-1);
+  --meta: #0467df;
 
   /* Dot-matrix fills: one fine grid everywhere. */
   --dot: 0.45px;
@@ -427,6 +428,10 @@ select.input {
 
 .mark-codex {
   color: var(--codex);
+}
+
+.mark-meta {
+  color: var(--meta);
 }
 
 .tag {

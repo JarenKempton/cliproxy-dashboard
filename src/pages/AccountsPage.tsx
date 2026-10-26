@@ -8,9 +8,16 @@ import { PROVIDER_NAMES } from '../lib/quota'
 import { accountStatus } from '../lib/status'
 import { accountName, providerOf, useStore } from '../lib/store'
 
-type Login = { provider: LoginProvider; url: string; state: string; status: 'wait' | 'ok' | 'error'; error?: string }
+type Login = {
+  provider: LoginProvider
+  url: string
+  state: string
+  status: 'wait' | 'ok' | 'error'
+  error?: string
+  userCode?: string
+}
 
-const LOGIN_LABEL: Record<LoginProvider, string> = { anthropic: 'Claude', codex: 'Codex' }
+const LOGIN_LABEL: Record<LoginProvider, string> = { anthropic: 'Claude', codex: 'Codex', meta: 'Muse Code' }
 
 function AddAccount({ onDone }: { onDone: () => void }) {
   const [login, setLogin] = useState<Login | null>(null)
@@ -50,8 +57,8 @@ function AddAccount({ onDone }: { onDone: () => void }) {
 
   const begin = async (provider: LoginProvider) => {
     try {
-      const { url, state } = await startLogin(provider)
-      setLogin({ provider, url, state, status: 'wait' })
+      const { url, state, user_code } = await startLogin(provider)
+      setLogin({ provider, url, state, status: 'wait', userCode: user_code })
       setCallback('')
       window.open(url, '_blank', 'noopener')
     } catch (err) {
@@ -83,6 +90,9 @@ function AddAccount({ onDone }: { onDone: () => void }) {
         <button className="btn" onClick={() => begin('codex')}>
           <Plus size={14} /> Add Codex account
         </button>
+        <button className="btn" onClick={() => begin('meta')}>
+          <Plus size={14} /> Add Muse Code account
+        </button>
       </div>
     )
   }
@@ -108,7 +118,15 @@ function AddAccount({ onDone }: { onDone: () => void }) {
           </button>
         </div>
       </div>
-      {login.status === 'wait' && (
+      {login.status === 'wait' && login.userCode && (
+        <div className="login-body">
+          <p className="muted">
+            On the Meta page that just opened, check the code is <strong className="mono">{login.userCode}</strong> and
+            approve it with the account you subscribed with. This panel updates on its own once you approve.
+          </p>
+        </div>
+      )}
+      {login.status === 'wait' && !login.userCode && (
         <div className="login-body">
           <p className="muted">
             Sign in on the page that just opened. If it ends on an error page (common when this dashboard isn’t on the same
@@ -189,7 +207,7 @@ export function AccountsPage() {
 
   return (
     <div className="page">
-      <PageHead title="Accounts" sub="Claude and Codex logins the proxy routes through" />
+      <PageHead title="Accounts" sub="Claude, Codex and Muse Code logins the proxy routes through" />
       <AddAccount onDone={reloadAccounts} />
 
       {groups.map((g) => (

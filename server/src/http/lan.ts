@@ -3,6 +3,7 @@
 //   GET  /connect, /connect/undo, /connect/claim/:code   connect a machine (codes are minted in the dashboard)
 //   GET  /connect/import                                 the history import script
 //   POST /api/import                                     usage-only history; requires a proxy API key
+//   ALL  /muse-code/*, /v1/*                             Muse relay (see muse-relay.ts); proxy key required
 //
 // Imports are attributed to the sender's LAN IP.
 
@@ -13,14 +14,16 @@ import { importTranscripts, type TranscriptFile } from '../import/importer'
 import type { ProxyKeys } from '../proxy-keys'
 import type { PriceBook } from '../usage/pricing'
 import { connectApp, type ConnectOptions } from './connect'
+import { museRelay } from './muse-relay'
 
 const MAX_FAILURES_PER_MINUTE = 10
 
-export function startLanListener(db: Db, prices: PriceBook, keys: ProxyKeys, connect: ConnectOptions) {
+export function startLanListener(db: Db, prices: PriceBook, keys: ProxyKeys, connect: ConnectOptions, proxyUrl: string, managementKey: string) {
   const failures: number[] = []
   const app = new Hono()
 
   app.route('/connect', connectApp({ ...connect, canMint: false }))
+  app.route('/', museRelay(proxyUrl, managementKey, keys))
 
   app.post('/api/import', async (c) => {
     const now = Date.now()
