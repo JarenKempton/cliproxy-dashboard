@@ -13,7 +13,7 @@ export type QuotaError = {
 }
 
 export function describeQuotaError(err: unknown, provider: string): QuotaError {
-  const who = provider === 'codex' ? 'OpenAI' : 'Anthropic'
+  const who = ({ codex: 'OpenAI', meta: 'Meta' } as Record<string, string>)[provider] ?? 'Anthropic'
   if (err instanceof UpstreamError) {
     const code = [`HTTP ${err.status}`, err.type].filter(Boolean).join(' · ')
     // A 429 without Retry-After still backs off, so polling doesn't prolong it.

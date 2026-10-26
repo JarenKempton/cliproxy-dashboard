@@ -10,6 +10,7 @@
 
 import { Hono } from 'hono'
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { META_MINT_URL, metaQuota } from './meta-quota'
 
 export const MANAGEMENT_PREFIX = '/v0/management'
 const BACKUP_DIR = '.backups'
@@ -34,6 +35,10 @@ function isCodexReset(v: Record<string, unknown>) {
   const data = json(String(v.data ?? ''))
   return !!data && typeof data.redeem_request_id === 'string' && Object.keys(data).length === 1
 }
+
+// Answered by the bridge itself (see meta-quota.ts), never forwarded.
+const isMetaQuota = (v: Record<string, unknown>) =>
+  String(v.method).toUpperCase() === 'POST' && v.url === META_MINT_URL && !v.data
 
 // Scalar settings, set with a `{ "value": ... }` body.
 const SETTINGS =
@@ -65,7 +70,7 @@ const WRITE_RULES: Rule[] = [
     check: (b) => {
       const v = json(b)
       if (!v) return false
-      return (String(v.method).toUpperCase() === 'GET' && QUOTA_URLS.has(String(v.url)) && !v.data) || isCodexReset(v)
+      return (String(v.method).toUpperCase() === 'GET' && QUOTA_URLS.has(String(v.url)) && !v.data) || isCodexReset(v) || isMetaQuota(v)
     },
   },
   {
@@ -140,6 +145,11 @@ function saveBackup(yaml: string) {
 export function managementApp(target: string, managementKey: string, allowWrites: boolean) {
   const auth = { Authorization: `Bearer ${managementKey}` }
   const state = { locked: false }
+  const managementGet = async (path: string) => {
+    const res = await fetch(`${target}${MANAGEMENT_PREFIX}${path}`, { headers: auth })
+    if (res.status === 401) state.locked = true
+    return res
+  }
   const app = new Hono()
 
   app.all('*', async (c) => {
@@ -200,12 +210,13 @@ export function managementApp(target: string, managementKey: string, allowWrites
       }
 
       if (rule?.touchesConfig || allowWrites) {
-        const current = await fetch(`${target}${MANAGEMENT_PREFIX}/config.yaml`, { headers: auth })
-        if (current.status === 401) state.locked = true
+        const current = await managementGet('/config.yaml')
         if (!current.ok) return deny(502, `Couldn't back up config.yaml before writing (HTTP ${current.status})`)
         saveBackup(await current.text())
       }
-      const upstream = await forward(body)
+      const upstream = apiCall && isMetaQuota(apiCall)
+        ? new Response(await metaQuota(managementGet, String(apiCall.authIndex ?? apiCall.auth_index)), { headers: { 'Content-Type': 'application/json' } })
+        : await forward(body)
       const text = await upstream.text()
       if (cacheKey && upstream.ok) {
         const status = (json(text)?.status_code as number) ?? 0
