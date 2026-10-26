@@ -45,6 +45,12 @@ const FIRST_PARTY = ['anthropic', 'openai', 'meta']
 // Placeholder or alias names that don't identify a billable model.
 const NEVER_PRICED = new Set(['<synthetic>', 'synthetic', 'opus', 'sonnet', 'haiku', 'fable'])
 
+// Muse models the price table doesn't list, priced by their nearest listed
+// sibling: Wonder Full is subscription-only (never sold per token), so it
+// takes standard Wonder's rates; unlisted "-contributor" variants take the
+// contributor rates of the listed Spark contributor rows.
+const CONTRIBUTOR_RATES: Rates = { input: 100_000, output: 200_000, cacheRead: 2_000, cacheWrite: null }
+
 // "Claude-Opus-5-5[1m]" → "claude-opus-5-5" (context-size suffixes aren't separate prices).
 export function normalizeModel(model: string) {
   return model.trim().toLowerCase().replace(/\[.*$/, '')
@@ -124,6 +130,18 @@ export class PriceBook {
     for (const [key, entry] of candidates) {
       const priced = this.toRates(key, entry)
       if (priced) return priced
+    }
+    return this.fallback(model)
+  }
+
+  private fallback(model: string): { rates: Rates; pricedAs: string } | null {
+    if (model.startsWith('muse-') && model.endsWith('-contributor')) {
+      const base = this.lookup(model.slice(0, -'-contributor'.length))
+      return base ? { rates: CONTRIBUTOR_RATES, pricedAs: 'fallback:contributor' } : null
+    }
+    if (model.startsWith('muse-wonder-full')) {
+      const wonder = this.lookup('muse-wonder-1.0')
+      return wonder ? { rates: wonder.rates, pricedAs: `fallback:${wonder.pricedAs}` } : null
     }
     return null
   }
