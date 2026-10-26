@@ -168,10 +168,12 @@ function AccountRow({ file, onRemove }: { file: AuthFile; onRemove: (f: AuthFile
 export function AccountsPage() {
   const { files, reloadAccounts, remove } = useStore()
   const [removing, setRemoving] = useState<AuthFile | null>(null)
-  const groups = (['claude', 'codex'] as const).map((p) => ({
-    provider: p,
-    files: files.filter((f) => providerOf(f) === p).sort((a, b) => a.name.localeCompare(b.name)),
-  }))
+  const groups = (['claude', 'codex', 'meta'] as const)
+    .map((p) => ({
+      provider: p,
+      files: files.filter((f) => providerOf(f) === p).sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .filter((g) => g.provider !== 'meta' || g.files.length)
 
   const confirmRemove = async () => {
     const file = removing

@@ -12,6 +12,11 @@ import { ProviderMark } from './ProviderMark'
 import { ResetCredits } from './ResetCredits'
 import { Switch } from './ui'
 
+const PLAN_SOURCES: Record<string, (plan: string) => string> = {
+  codex: (plan) => `OpenAI plan_type: ${plan}`,
+  meta: () => 'From the Muse Code subscription',
+}
+
 function level(remaining: number) {
   return remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
 }
@@ -83,7 +88,7 @@ export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActi
           {accountName(file)}
         </span>
         {state?.quota?.plan && (
-          <span className="tag" title={provider === 'codex' ? `OpenAI plan_type: ${state.quota.plan}` : 'From the Anthropic account profile'}>
+          <span className="tag" title={PLAN_SOURCES[provider]?.(state.quota.plan) ?? 'From the Anthropic account profile'}>
             {state.quota.plan}
           </span>
         )}

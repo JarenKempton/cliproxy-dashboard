@@ -213,14 +213,46 @@ async function codexQuota(f: AuthFile): Promise<Quota> {
   }
 }
 
+// --- Muse Code (Meta) -----------------------------------------------------
+
+// The bridge answers this call itself with the plan and usage (see
+// server/src/http/meta-quota.ts); it is never forwarded to Meta as-is.
+const META_MINT_URL = 'https://api.meta.ai/muse-code/key'
+
+type MetaWindow = { used_percent?: number; resets_at?: number; window_duration_mins?: number } | null
+
+type MetaUsage = {
+  subs_tier_name?: string
+  subs_usage?: { window?: MetaWindow; weekly?: MetaWindow } | null
+}
+
+function metaWindow(w: MetaWindow | undefined, id: string, label: string, periodMs: number): QuotaWindow[] {
+  if (!w || typeof w.used_percent !== 'number') return []
+  return [{ id, label, usedPercent: w.used_percent, resetAtMs: w.resets_at ? w.resets_at * 1000 : null, periodMs }]
+}
+
+async function metaQuota(f: AuthFile): Promise<Quota> {
+  const usage = (await upstreamCall(f.auth_index, 'POST', META_MINT_URL, {})) as MetaUsage
+  const window = usage.subs_usage?.window
+  return {
+    windows: [
+      ...metaWindow(window, 'session', '5-hour', (window?.window_duration_mins ?? 300) * 60e3),
+      ...metaWindow(usage.subs_usage?.weekly, 'weekly', 'Weekly', WEEK),
+    ],
+    plan: usage.subs_tier_name?.replace(/^Muse Code /, '').replace(/ Usage$/, ''),
+  }
+}
+
 // --------------------------------------------------------------------------
 
-export const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
+export const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', meta: 'Muse Code' }
 
 export function supportsQuota(f: AuthFile) {
   return providerOf(f) in PROVIDER_NAMES
 }
 
+const QUOTA_FETCHERS: Record<string, (f: AuthFile) => Promise<Quota>> = { claude: claudeQuota, codex: codexQuota, meta: metaQuota }
+
 export function fetchQuota(f: AuthFile): Promise<Quota> {
-  return providerOf(f) === 'codex' ? codexQuota(f) : claudeQuota(f)
+  return QUOTA_FETCHERS[providerOf(f)](f)
 }
