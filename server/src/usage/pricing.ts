@@ -135,7 +135,7 @@ export class PriceBook {
   }
 
   private fallback(model: string): { rates: Rates; pricedAs: string } | null {
-    if (model.endsWith('-contributor')) {
+    if (model.startsWith('muse-') && model.endsWith('-contributor')) {
       const base = this.lookup(model.slice(0, -'-contributor'.length))
       return base ? { rates: CONTRIBUTOR_RATES, pricedAs: 'fallback:contributor' } : null
     }
