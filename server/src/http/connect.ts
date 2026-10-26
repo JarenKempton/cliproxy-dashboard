@@ -22,7 +22,7 @@ const CODE_TTL_MS = 15 * 60e3
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789'
 const MAX_CLAIM_FAILURES_PER_MINUTE = 20
 
-type Tool = 'claude' | 'codex'
+type Tool = 'claude' | 'codex' | 'muse'
 type Network = 'tailnet' | 'lan'
 
 // Shared by every listener in this process, so a code minted through the
@@ -107,10 +107,10 @@ export function connectApp(o: ConnectOptions) {
 
   app.get('/networks', (c) => c.json(networks(o)))
 
-  // Body: { key, tools: ['claude' | 'codex'], network: 'tailnet' | 'lan' }
+  // Body: { key, tools: ['claude' | 'codex' | 'muse'], network: 'tailnet' | 'lan' }
   app.post('/codes', async (c) => {
     const body = await c.req.json<{ key?: string; tools?: string[]; network?: string }>()
-    const tools = (body.tools ?? []).filter((t): t is Tool => t === 'claude' || t === 'codex')
+    const tools = (body.tools ?? []).filter((t): t is Tool => t === 'claude' || t === 'codex' || t === 'muse')
     const target = networks(o)[body.network as Network]
     if (!body.key || !tools.length || !target) return c.json({ error: 'key, tools and an available network are required' }, 400)
 

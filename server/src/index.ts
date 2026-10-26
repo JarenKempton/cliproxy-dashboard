@@ -11,6 +11,7 @@ import { createApp } from './http/app'
 import { connectApp } from './http/connect'
 import { MANAGEMENT_PREFIX, managementApp } from './http/management'
 import { startLanListener } from './http/lan'
+import { museRelay } from './http/muse-relay'
 import { ProxyKeys } from './proxy-keys'
 import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
@@ -50,6 +51,7 @@ const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
 app.route('/connect', connectApp(connect))
 app.route(MANAGEMENT_PREFIX, managementApp(env.proxyUrl, env.managementKey, env.allowWrites))
+app.route('/', museRelay(env.proxyUrl, env.managementKey, keys))
 if (existsSync(env.staticDir)) {
   app.use('*', serveStatic({ root: env.staticDir }))
   app.get('*', serveStatic({ path: `${env.staticDir}/index.html` }))
@@ -57,4 +59,4 @@ if (existsSync(env.staticDir)) {
 Bun.serve({ hostname: env.host, port: env.port, fetch: app.fetch })
 console.log(`[server] listening on http://${env.host}:${env.port}`)
 
-if (env.lanPort) startLanListener(db, prices, keys, connect)
+if (env.lanPort) startLanListener(db, prices, keys, connect, env.proxyUrl, env.managementKey)

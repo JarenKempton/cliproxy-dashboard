@@ -1,5 +1,7 @@
-// Shell scripts that point Claude Code and/or Codex at the proxy by editing
-// their per-user config files in place.
+// Shell scripts that point Claude Code, Codex and/or Muse Code at the proxy
+// by editing their per-user config files in place. Muse points at the
+// dashboard instead of the proxy: the dashboard serves the /muse-code/*
+// catalog routes Muse needs and passes /v1 through (see muse-relay.ts).
 //
 // - Works from any directory: paths are resolved from $HOME.
 // - The first run backs up every file it touches (next to the original, as
@@ -9,10 +11,11 @@
 // - No dependencies: macOS runs the merge with the built-in JavaScript for
 //   Automation (osascript); other systems use python3.
 
-export type Tool = 'claude' | 'codex'
+export type Tool = 'claude' | 'codex' | 'muse'
 
 const CLAUDE_FILE = '"$HOME/.claude/settings.json"'
 const CODEX_FILE = '"$HOME/.codex/config.toml"'
+const MUSE_DIR = '"${XDG_CONFIG_HOME:-$HOME/.config}/muse"'
 
 // Same transforms in both engines. Claude: set env.ANTHROPIC_BASE_URL and
 // env.ANTHROPIC_AUTH_TOKEN. Codex: drop any old [model_providers.cliproxy]
@@ -22,12 +25,19 @@ const env = $.NSProcessInfo.processInfo.environment
 const get = (k) => { const v = env.objectForKey(k); return v.isNil() ? '' : v.js }
 const read = (p) => { const s = $.NSString.stringWithContentsOfFileEncodingError(p, $.NSUTF8StringEncoding, null); return s.isNil() ? '' : s.js }
 const write = (p, t) => { $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError($(p).stringByDeletingLastPathComponent, true, $(), null); $(t).writeToFileAtomicallyEncodingError(p, true, $.NSUTF8StringEncoding, null) }
-const url = get('CLIPROXY_URL'), key = get('CLIPROXY_KEY'), tools = get('CLIPROXY_TOOLS').split(' '), home = get('HOME')
+const url = get('CLIPROXY_URL'), key = get('CLIPROXY_KEY'), tools = get('CLIPROXY_TOOLS').split(' '), home = get('HOME'), dash = get('CLIPROXY_DASHBOARD'), xdg = get('XDG_CONFIG_HOME') || home + '/.config'
 if (tools.includes('claude')) {
   const p = home + '/.claude/settings.json', raw = read(p).trim()
   let cfg
   try { cfg = raw ? JSON.parse(raw) : {} } catch (e) { throw new Error(p + ' is not valid JSON; left unchanged') }
   cfg.env = Object.assign({}, cfg.env, { ANTHROPIC_BASE_URL: url, ANTHROPIC_AUTH_TOKEN: key })
+  write(p, JSON.stringify(cfg, null, 2) + '\\n')
+}
+if (tools.includes('muse')) {
+  const p = xdg + '/muse/settings.json', raw = read(p).trim()
+  let cfg
+  try { cfg = raw ? JSON.parse(raw) : {} } catch (e) { throw new Error(p + ' is not valid JSON; left unchanged') }
+  cfg.endpoint_transport = Object.assign({}, cfg.endpoint_transport, { base_url: dash + '/v1', auth: 'bearer' })
   write(p, JSON.stringify(cfg, null, 2) + '\\n')
 }
 if (tools.includes('codex')) {
@@ -48,6 +58,7 @@ if (tools.includes('codex')) {
 
 const PYTHON = `import json, os, re
 url, key, tools, home = os.environ['CLIPROXY_URL'], os.environ['CLIPROXY_KEY'], os.environ['CLIPROXY_TOOLS'].split(), os.environ['HOME']
+dash, xdg = os.environ['CLIPROXY_DASHBOARD'], os.environ.get('XDG_CONFIG_HOME') or home + '/.config'
 def read(p):
     try:
         return open(p).read()
@@ -64,6 +75,15 @@ if 'claude' in tools:
     except ValueError:
         raise SystemExit(p + ' is not valid JSON; left unchanged')
     cfg['env'] = {**cfg.get('env', {}), 'ANTHROPIC_BASE_URL': url, 'ANTHROPIC_AUTH_TOKEN': key}
+    write(p, json.dumps(cfg, indent=2) + '\\n')
+if 'muse' in tools:
+    p = xdg + '/muse/settings.json'
+    raw = read(p).strip()
+    try:
+        cfg = json.loads(raw) if raw else {}
+    except ValueError:
+        raise SystemExit(p + ' is not valid JSON; left unchanged')
+    cfg['endpoint_transport'] = {**cfg.get('endpoint_transport', {}), 'base_url': dash + '/v1', 'auth': 'bearer'}
     write(p, json.dumps(cfg, indent=2) + '\\n')
 if 'codex' in tools:
     p = home + '/.codex/config.toml'
@@ -88,10 +108,17 @@ if 'codex' in tools:
 
 // Backs up (first run only) and edits the files for $CLIPROXY_TOOLS, using
 // $CLIPROXY_URL and $CLIPROXY_KEY. Shared by the served script and tests.
-const APPLY = `for t in $CLIPROXY_TOOLS; do
-  case "$t" in claude) f=${CLAUDE_FILE};; codex) f=${CODEX_FILE};; *) continue;; esac
-  [ -e "$f.cliproxy-backup" ] || [ -e "$f.cliproxy-backup.absent" ] && continue
+const APPLY = `backup() {
+  f="$1"
+  [ -e "$f.cliproxy-backup" ] || [ -e "$f.cliproxy-backup.absent" ] && return
   if [ -f "$f" ]; then cp "$f" "$f.cliproxy-backup"; else mkdir -p "$(dirname "$f")"; : > "$f.cliproxy-backup.absent"; fi
+}
+for t in $CLIPROXY_TOOLS; do
+  case "$t" in
+    claude) backup ${CLAUDE_FILE};;
+    codex) backup ${CODEX_FILE};;
+    muse) backup ${MUSE_DIR}/settings.json; backup ${MUSE_DIR}/auth.json;;
+  esac
 done
 if [ "\${CLIPROXY_ENGINE:-$(uname)}" = Darwin ]; then
 osascript -l JavaScript >/dev/null <<'CLIPROXY_JS'
@@ -108,21 +135,31 @@ fi`
 // address and key, so the key never appears in the command or shell history.
 export function connectScript(dashboardOrigin: string): string {
   return `#!/bin/sh
-# CLIProxy connect: points Claude Code and/or Codex on this machine at the proxy.
-# Edits ~/.claude/settings.json and ~/.codex/config.toml, backing each up first.
+# CLIProxy connect: points Claude Code, Codex and/or Muse Code on this machine at the proxy.
+# Edits ~/.claude/settings.json, ~/.codex/config.toml and Muse's settings.json/auth.json, backing each up first.
 # Undo: curl -fsSL ${dashboardOrigin}/connect/undo | sh
 set -e
 code="\${1:-}"
 [ -n "$code" ] || { echo "Missing setup code. Copy the full command from the dashboard." >&2; exit 1; }
 resp=$(curl -fs "${dashboardOrigin}/connect/claim/$code") || { echo "That setup code is invalid, expired, or already used. Make a new one in the dashboard." >&2; exit 1; }
 field() { printf '%s\\n' "$resp" | sed -n "s/^$1=//p"; }
-CLIPROXY_URL=$(field url) CLIPROXY_KEY=$(field key) CLIPROXY_TOOLS=$(field tools)
-export CLIPROXY_URL CLIPROXY_KEY CLIPROXY_TOOLS
+CLIPROXY_URL=$(field url) CLIPROXY_KEY=$(field key) CLIPROXY_TOOLS=$(field tools) CLIPROXY_DASHBOARD="${dashboardOrigin}"
+export CLIPROXY_URL CLIPROXY_KEY CLIPROXY_TOOLS CLIPROXY_DASHBOARD
 ${APPLY}
 for t in $CLIPROXY_TOOLS; do
-  case "$t" in claude) echo "✓ Claude Code → $CLIPROXY_URL";; codex) echo "✓ Codex → $CLIPROXY_URL";; esac
+  case "$t" in
+    claude) echo "✓ Claude Code → $CLIPROXY_URL";;
+    codex) echo "✓ Codex → $CLIPROXY_URL";;
+    muse)
+      if command -v muse >/dev/null; then
+        printf %s "$CLIPROXY_KEY" | muse auth set --api-key-stdin >/dev/null
+        echo "✓ Muse Code → $CLIPROXY_DASHBOARD (via the dashboard relay)"
+      else
+        echo "Muse Code settings updated, but the muse CLI isn't on PATH. Install it, then run this connect command again so the proxy key gets stored." >&2
+      fi;;
+  esac
 done
-echo "Restart any open Claude Code or Codex sessions to pick this up."
+echo "Restart any open sessions to pick this up."
 `
 }
 
@@ -130,7 +167,7 @@ echo "Restart any open Claude Code or Codex sessions to pick this up."
 export function undoScript(): string {
   return `#!/bin/sh
 # CLIProxy disconnect: restores the files the connect script backed up.
-for f in ${CLAUDE_FILE} ${CODEX_FILE}; do
+for f in ${CLAUDE_FILE} ${CODEX_FILE} ${MUSE_DIR}/settings.json ${MUSE_DIR}/auth.json; do
   if [ -f "$f.cliproxy-backup" ]; then mv "$f.cliproxy-backup" "$f"; echo "restored $f"
   elif [ -f "$f.cliproxy-backup.absent" ]; then rm -f "$f" "$f.cliproxy-backup.absent"; echo "removed $f"
   fi

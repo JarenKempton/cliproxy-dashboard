@@ -128,6 +128,7 @@ function clientIpOf(r: CliproxyRecord) {
 function toolOf(userAgent?: string) {
   if (!userAgent) return null
   if (userAgent.startsWith('claude-cli')) return 'claude-code'
+  if (userAgent.startsWith('muse')) return 'muse-code'
   if (/codex/i.test(userAgent)) return 'codex'
   return userAgent.split(/[/ ]/)[0] || null
 }
