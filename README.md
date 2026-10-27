@@ -20,42 +20,91 @@ A web UI for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)'s manag
 
 It is one Bun process: a Hono server that serves the built React app, bridges `/v0/management/*` to the proxy, and collects the proxy's usage records into SQLite.
 
-## Requirements
+## Setup
 
-- CLIProxyAPI **v7.1.18 or later** (first release with usage Pub/Sub). Tested against v8.0.36.
-- Remote management enabled on the proxy with a `secret-key`.
-- Usage statistics enabled on the proxy (see below).
-- [Bun](https://bun.sh) 1.4+ and Node 22.12+ (for the build), or Docker.
+Everything below runs on the machine that runs CLIProxyAPI (Linux or macOS). You need CLIProxyAPI **v7.1.18 or later** (tested against v8.0.44).
 
-## Quick start
+### 1. Prepare the proxy
 
-On the machine running CLIProxyAPI:
+In CLIProxyAPI's `config.yaml`, set these values. It reloads on save; restart it if it doesn't.
 
-1. Enable usage records in the proxy's `config.yaml` and restart or let it hot-reload:
+```yaml
+management:
+  allow-remote: false
+  secret-key: "pick-a-long-password"   # the dashboard logs in with this
 
-   ```yaml
-   observability:
-     usage:
-       usage-statistics-enabled: true
-       redis-usage-queue-retention-seconds: 3600
-   ```
+observability:
+  usage:
+    usage-statistics-enabled: true
+    redis-usage-queue-retention-seconds: 3600
+```
 
-   On pre-v8 configs the same keys sit at the top level.
+Both sections already exist in the file; edit them rather than adding them twice. CLIProxyAPI replaces `secret-key` with a hash on startup, so write the password down before you save. On pre-v8 configs (no `config-version: 8` line) the section is `remote-management:` and the `usage-*` keys sit at the top level.
 
-2. Clone, configure, build and run:
+### 2. Install and build
 
-   ```sh
-   git clone https://github.com/JarenKempton/cliproxy-dashboard.git
-   cd cliproxy-dashboard
-   cp .env.example .env.local      # set CPA_MANAGEMENT_KEY, and CPA_TARGET if the proxy isn't on 127.0.0.1:8317
-   npm ci
-   npm run build
-   bun server/src/index.ts
-   ```
+```sh
+curl -fsSL https://bun.sh/install | bash      # then open a new terminal
+git clone https://github.com/JarenKempton/cliproxy-dashboard.git
+cd cliproxy-dashboard
+cp .env.example .env.local
+```
 
-3. Open <http://127.0.0.1:5174>.
+Edit `.env.local`: set `CPA_MANAGEMENT_KEY` to the password from step 1. Leave everything else as is unless the proxy isn't on `http://127.0.0.1:8317` (then set `CPA_TARGET`).
 
-The server logs `[collector] subscribed to CLIProxyAPI usage` once it is receiving records. `/api/health` shows the same.
+```sh
+bun install
+bun run build
+bun server/src/index.ts
+```
+
+Open <http://127.0.0.1:5174>. Check that it's receiving usage:
+
+```sh
+curl -s http://127.0.0.1:5174/api/health     # "connected":true
+```
+
+`"lastError":"connect ECONNREFUSED"` means the proxy isn't reachable at `CPA_TARGET`. If the dashboard says "Bridge locked after a 401", `CPA_MANAGEMENT_KEY` doesn't match the `secret-key`: fix it and restart the dashboard.
+
+### 3. Start it at boot (Linux)
+
+Stop the server from step 2 (Ctrl-C), then from the `cliproxy-dashboard` directory:
+
+```sh
+sudo tee /etc/systemd/system/cliproxy-dashboard.service >/dev/null <<UNIT
+[Unit]
+Description=cliproxy-dashboard
+After=network-online.target
+
+[Service]
+User=$USER
+WorkingDirectory=$PWD
+ExecStart=$(command -v bun) server/src/index.ts
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl enable --now cliproxy-dashboard
+```
+
+Logs: `journalctl -u cliproxy-dashboard -f`. On macOS, run step 2's last command in a terminal you leave open, or under launchd.
+
+### 4. Reach it from your other devices (Tailscale)
+
+With [Tailscale](https://tailscale.com/download) installed and logged in on this machine:
+
+```sh
+sudo tailscale serve --bg --https=5443 http://127.0.0.1:5174    # the dashboard
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8317     # the proxy, for connecting other machines
+tailscale serve status
+```
+
+On macOS, drop `sudo`.
+
+If it prints a link to enable HTTPS, open it, approve, and run the command again. The dashboard is then at `https://<this-machine>.<your-tailnet>.ts.net:5443` from any device on your tailnet, and the API keys page can set up Claude Code or Codex on those devices in one command.
+
+Only share the tailnet with people you trust: the dashboard has no login (see [Security](#security)).
 
 ## Configuration
 
@@ -63,7 +112,7 @@ All configuration is environment variables, read from `.env.local` in the workin
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `CPA_MANAGEMENT_KEY` | required | Plaintext management key (the `remote-management.secret-key` you log in to the built-in panel with) |
+| `CPA_MANAGEMENT_KEY` | required | Plaintext management key (`management.secret-key`, or `remote-management.secret-key` before v8; the one you log in to the built-in panel with) |
 | `CPA_TARGET` | `http://127.0.0.1:8317` | CLIProxyAPI base URL; the usage collector connects to the same host and port |
 | `CPA_ALLOW_WRITES` | unset | `1` forwards every management write, not only the dashboard's own |
 | `USAGE_SERVER_HOST` | `127.0.0.1` | Dashboard listen address |
@@ -81,7 +130,7 @@ All configuration is environment variables, read from `.env.local` in the workin
 
 ### Bun, as a service
 
-Run `bun server/src/index.ts` from the repo directory under systemd, launchd, or similar. Keep `data/` and `.backups/` on persistent storage.
+See [Setup](#3-start-it-at-boot-linux). Keep `data/` and `.backups/` on persistent storage.
 
 ### Docker
 
