@@ -19,6 +19,8 @@ export type ResetCredits = { available: number; expiresAtMs: number[] }
 
 export type Quota = { windows: QuotaWindow[]; plan?: string; resetCredits?: ResetCredits }
 
+export class QuotaUnavailableError extends Error {}
+
 export const providerOf = (f: AuthFile) => (f.provider ?? f.type ?? '').toLowerCase()
 
 const parseTime = (s: unknown) => (typeof s === 'string' && s ? Date.parse(s) : null)
@@ -234,11 +236,15 @@ function metaWindow(w: MetaWindow | undefined, id: string, label: string, period
 async function metaQuota(f: AuthFile): Promise<Quota> {
   const usage = (await upstreamCall(f.auth_index, 'POST', META_MINT_URL, {})) as MetaUsage
   const window = usage.subs_usage?.window
+  const windows = [
+    ...metaWindow(window, 'session', '5-hour', (window?.window_duration_mins ?? 300) * 60e3),
+    ...metaWindow(usage.subs_usage?.weekly, 'weekly', 'Weekly', WEEK),
+  ]
+  if (!windows.length) {
+    throw new QuotaUnavailableError('Meta returned no usage percentages. Any percentages shown are the last reported reading, not current quota.')
+  }
   return {
-    windows: [
-      ...metaWindow(window, 'session', '5-hour', (window?.window_duration_mins ?? 300) * 60e3),
-      ...metaWindow(usage.subs_usage?.weekly, 'weekly', 'Weekly', WEEK),
-    ],
+    windows,
     plan: usage.subs_tier_name?.replace(/^Muse Code /, '').replace(/ Usage$/, ''),
   }
 }

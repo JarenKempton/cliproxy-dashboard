@@ -1,6 +1,7 @@
 // Turns a failed quota lookup into something a person can act on.
 
 import { ApiError, UpstreamError } from './api'
+import { QuotaUnavailableError } from './quota'
 
 const DEFAULT_BACKOFF_MS = 10 * 60e3
 
@@ -14,6 +15,9 @@ export type QuotaError = {
 
 export function describeQuotaError(err: unknown, provider: string): QuotaError {
   const who = ({ codex: 'OpenAI', meta: 'Meta' } as Record<string, string>)[provider] ?? 'Anthropic'
+  if (err instanceof QuotaUnavailableError) {
+    return { title: 'Quota unavailable', hint: `${who} omitted usage from a successful response. The dashboard will check again on its next refresh.`, code: 'no_usage', message: err.message }
+  }
   if (err instanceof UpstreamError) {
     const code = [`HTTP ${err.status}`, err.type].filter(Boolean).join(' · ')
     // A 429 without Retry-After still backs off, so polling doesn't prolong it.
