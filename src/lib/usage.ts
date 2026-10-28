@@ -101,6 +101,7 @@ const PROVIDERS: Record<string, { label: string; color: string }> = {
   openai: { label: 'OpenAI', color: 'var(--codex)' },
   anthropic: { label: 'Anthropic', color: 'var(--claude)' },
   meta: { label: 'Meta', color: 'var(--meta)' },
+  xai: { label: 'xAI', color: 'var(--xai)' },
   gemini: { label: 'Google', color: '#5485c4' },
   unknown: { label: 'Unknown', color: 'var(--fg-3)' },
 }

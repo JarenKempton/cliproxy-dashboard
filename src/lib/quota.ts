@@ -2,24 +2,18 @@
 // endpoints, via the proxy's /api-call (which substitutes the account token).
 
 import { upstreamCall, upstreamGet, type AuthFile } from './api'
+import { xaiWindows, type XaiConfig } from './xai-quota'
+import { QuotaUnavailableError, type QuotaWindow } from './quota-types'
+
+export { QuotaUnavailableError, type QuotaWindow } from './quota-types'
 
 const HOUR = 3600e3
 const WEEK = 168 * HOUR
-
-export type QuotaWindow = {
-  id: string
-  label: string
-  usedPercent: number
-  resetAtMs: number | null // null: window hasn't started yet
-  periodMs: number
-}
 
 // Codex "reset credits": each one resets the account's usage limits once.
 export type ResetCredits = { available: number; expiresAtMs: number[] }
 
 export type Quota = { windows: QuotaWindow[]; plan?: string; resetCredits?: ResetCredits }
-
-export class QuotaUnavailableError extends Error {}
 
 export const providerOf = (f: AuthFile) => (f.provider ?? f.type ?? '').toLowerCase()
 
@@ -249,15 +243,32 @@ async function metaQuota(f: AuthFile): Promise<Quota> {
   }
 }
 
+// --- xAI (Grok) -----------------------------------------------------------
+
+const XAI_HEADERS = {
+  Authorization: 'Bearer $TOKEN$',
+  'X-XAI-Token-Auth': 'xai-grok-cli',
+  'x-grok-client-version': '1.0.46',
+  Accept: 'application/json',
+}
+
+const XAI_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits'
+
+async function xaiQuota(f: AuthFile): Promise<Quota> {
+  const body = (await upstreamGet(f.auth_index, XAI_BILLING_URL, XAI_HEADERS)) as { config?: XaiConfig } | null
+  const config = (body ?? {}).config ?? {}
+  return { windows: xaiWindows(config) }
+}
+
 // --------------------------------------------------------------------------
 
-export const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', meta: 'Muse Code' }
+export const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', meta: 'Muse Code', xai: 'Grok' }
 
 export function supportsQuota(f: AuthFile) {
   return providerOf(f) in PROVIDER_NAMES
 }
 
-const QUOTA_FETCHERS: Record<string, (f: AuthFile) => Promise<Quota>> = { claude: claudeQuota, codex: codexQuota, meta: metaQuota }
+const QUOTA_FETCHERS: Record<string, (f: AuthFile) => Promise<Quota>> = { claude: claudeQuota, codex: codexQuota, meta: metaQuota, xai: xaiQuota }
 
 export function fetchQuota(f: AuthFile): Promise<Quota> {
   return QUOTA_FETCHERS[providerOf(f)](f)

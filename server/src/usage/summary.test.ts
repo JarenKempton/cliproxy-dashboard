@@ -71,4 +71,19 @@ describe('usage provider attribution', () => {
     expect(summary.providers.find((p) => p.provider === 'anthropic')?.sessions).toBe(1)
     expect(summary.totals.records).toBe(4)
   })
+
+  test('maps grok-* models to xai vendor', () => {
+    const db = fixture([
+      { model: 'xai/grok-4.3', provider: 'codex' },
+      { model: 'grok-4-fast', provider: 'claude' },
+      { model: 'grok-beta', provider: 'openai' },
+    ])
+    const summary = usageSummary(db, '24h', 'UTC', now)
+    expect(summary.providers.map((p) => [p.provider, p.records]).sort()).toEqual([['xai', 3]])
+    // All three grok-* models are attributed to xai; exact order depends on stable sort of equal-cost rows.
+    expect(summary.byModel).toHaveLength(3)
+    expect(summary.byModel.every((m) => m.provider === 'xai')).toBe(true)
+    const models = summary.byModel.map((m) => m.model).sort()
+    expect(models).toEqual(['grok-4-fast', 'grok-beta', 'xai/grok-4.3'])
+  })
 })

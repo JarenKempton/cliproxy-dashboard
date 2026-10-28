@@ -25,6 +25,7 @@ const QUOTA_URLS = new Set([
   'https://api.anthropic.com/api/oauth/profile',
   'https://chatgpt.com/backend-api/wham/usage',
   'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits',
+  'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
 ])
 
 // The one upstream write the dashboard makes: spending a Codex reset credit.

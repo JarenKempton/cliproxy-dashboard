@@ -28,6 +28,7 @@
   --claude: #d97757;
   --codex: var(--fg-1);
   --meta: #0467df;
+  --xai: #a48bf0;
 
   /* Dot-matrix fills: one fine grid everywhere. */
   --dot: 0.45px;
@@ -432,6 +433,10 @@ select.input {
 
 .mark-meta {
   color: var(--meta);
+}
+
+.mark-xai {
+  color: var(--xai);
 }
 
 .tag {
