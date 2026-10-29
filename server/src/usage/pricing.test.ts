@@ -38,3 +38,14 @@ describe('muse fallback pricing', () => {
     expect(book().lookup('totally-unknown')).toBeNull()
   })
 })
+
+describe('reseller listings', () => {
+  test('prefers xAI’s own row for a Grok model a reseller lists first', () => {
+    const b = new PriceBook(openDb(':memory:'), '/nonexistent/prices.json')
+    ;(b as unknown as { table: object }).table = {
+      'azure_ai/grok-code-fast-1': { litellm_provider: 'azure_ai', input_cost_per_token: 2e-7, output_cost_per_token: 1.5e-6 },
+      'xai/grok-code-fast-1': { litellm_provider: 'xai', input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
+    }
+    expect(b.lookup('grok-code-fast-1')?.pricedAs).toBe('xai/grok-code-fast-1')
+  })
+})

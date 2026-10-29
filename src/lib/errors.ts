@@ -14,7 +14,7 @@ export type QuotaError = {
 }
 
 export function describeQuotaError(err: unknown, provider: string): QuotaError {
-  const who = ({ codex: 'OpenAI', meta: 'Meta' } as Record<string, string>)[provider] ?? 'Anthropic'
+  const who = ({ codex: 'OpenAI', meta: 'Meta', xai: 'xAI' } as Record<string, string>)[provider] ?? 'Anthropic'
   if (err instanceof QuotaUnavailableError) {
     return { title: 'Quota unavailable', hint: `${who} omitted usage from a successful response. The dashboard will check again on its next refresh.`, code: 'no_usage', message: err.message }
   }

@@ -186,12 +186,12 @@ function AccountRow({ file, onRemove }: { file: AuthFile; onRemove: (f: AuthFile
 export function AccountsPage() {
   const { files, reloadAccounts, remove } = useStore()
   const [removing, setRemoving] = useState<AuthFile | null>(null)
-  const groups = (['claude', 'codex', 'meta'] as const)
+  const groups = (['claude', 'codex', 'meta', 'xai'] as const)
     .map((p) => ({
       provider: p,
       files: files.filter((f) => providerOf(f) === p).sort((a, b) => a.name.localeCompare(b.name)),
     }))
-    .filter((g) => g.provider !== 'meta' || g.files.length)
+    .filter((g) => !['meta', 'xai'].includes(g.provider) || g.files.length)
 
   const confirmRemove = async () => {
     const file = removing
@@ -207,7 +207,7 @@ export function AccountsPage() {
 
   return (
     <div className="page">
-      <PageHead title="Accounts" sub="Claude, Codex and Muse Code logins the proxy routes through" />
+      <PageHead title="Accounts" sub="Claude, Codex, Muse Code and Grok logins the proxy routes through" />
       <AddAccount onDone={reloadAccounts} />
 
       {groups.map((g) => (

@@ -137,6 +137,7 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
       or ${modelPath} glob '*/chatgpt-*'
       or ${modelPath} glob '*/o[1-9]' or ${modelPath} glob '*/o[1-9]-*' then 'openai'
     when ${modelPath} glob '*/gemini-*' then 'gemini'
+    when ${modelPath} glob '*/grok-*' then 'xai'
     when ${upstream} in ('claude', 'anthropic') then 'anthropic'
     when ${upstream} in ('codex', 'openai') then 'openai'
     when ${upstream} in ('google', 'gemini') then 'gemini'

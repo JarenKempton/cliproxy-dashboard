@@ -23,7 +23,10 @@ export class QuotaUnavailableError extends Error {}
 
 export const providerOf = (f: AuthFile) => (f.provider ?? f.type ?? '').toLowerCase()
 
-const parseTime = (s: unknown) => (typeof s === 'string' && s ? Date.parse(s) : null)
+const parseTime = (s: unknown) => {
+  const ms = typeof s === 'string' && s ? Date.parse(s) : NaN
+  return Number.isNaN(ms) ? null : ms
+}
 
 // --- Claude ---------------------------------------------------------------
 
@@ -249,15 +252,47 @@ async function metaQuota(f: AuthFile): Promise<Quota> {
   }
 }
 
+// --- xAI (Grok) -----------------------------------------------------------
+
+// The billing endpoint the Grok Build CLI reads. It answers in proto3 JSON,
+// which omits zero values, so a missing percentage means nothing used yet.
+const XAI_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits'
+
+const XAI_HEADERS = {
+  Authorization: 'Bearer $TOKEN$',
+  'X-XAI-Token-Auth': 'xai-grok-cli',
+  'x-grok-client-version': '1.0.46',
+  Accept: 'application/json',
+}
+
+type XaiBilling = {
+  config?: {
+    currentPeriod?: { type?: string; start?: string; end?: string }
+    creditUsagePercent?: number
+  }
+} | null
+
+async function xaiQuota(f: AuthFile): Promise<Quota> {
+  const { currentPeriod: period, creditUsagePercent } = ((await upstreamGet(f.auth_index, XAI_BILLING_URL, XAI_HEADERS)) as XaiBilling)?.config ?? {}
+  if (!period) throw new QuotaUnavailableError('xAI returned no usage period.')
+  const start = parseTime(period.start)
+  const resetAtMs = parseTime(period.end)
+  const monthly = period.type === 'USAGE_PERIOD_TYPE_MONTHLY'
+  const periodMs = monthly ? (start && resetAtMs && resetAtMs > start ? resetAtMs - start : 30 * 24 * HOUR) : WEEK
+  return {
+    windows: [{ id: monthly ? 'monthly' : 'weekly', label: monthly ? 'Monthly' : 'Weekly', usedPercent: creditUsagePercent ?? 0, resetAtMs, periodMs }],
+  }
+}
+
 // --------------------------------------------------------------------------
 
-export const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', meta: 'Muse Code' }
+export const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', meta: 'Muse Code', xai: 'Grok' }
 
 export function supportsQuota(f: AuthFile) {
   return providerOf(f) in PROVIDER_NAMES
 }
 
-const QUOTA_FETCHERS: Record<string, (f: AuthFile) => Promise<Quota>> = { claude: claudeQuota, codex: codexQuota, meta: metaQuota }
+const QUOTA_FETCHERS: Record<string, (f: AuthFile) => Promise<Quota>> = { claude: claudeQuota, codex: codexQuota, meta: metaQuota, xai: xaiQuota }
 
 export function fetchQuota(f: AuthFile): Promise<Quota> {
   return QUOTA_FETCHERS[providerOf(f)](f)
