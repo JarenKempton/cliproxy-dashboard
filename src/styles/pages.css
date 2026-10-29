@@ -62,7 +62,16 @@
   font-size: 13px;
 }
 
-.arow-status {
+.arow-status:has(.cooldown-clear) {
+  flex-wrap: wrap;
+}
+
+.arow-status:has(.cooldown-clear) .arow-status-text {
+  flex-basis: 100%;
+}
+
+.arow-status-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -102,6 +102,9 @@ export const setDisabled = (name: string, disabled: boolean) =>
 
 export const deleteAuthFile = (name: string) => request('DELETE', `/auth-files${q({ name })}`)
 
+export const clearCooldown = (authIndex: string) =>
+  request('POST', '/routing/cooldown/reset', { body: { auth_index: authIndex } })
+
 export const upstreamGet = (authIndex: string, url: string, header: Record<string, string>) =>
   upstreamCall(authIndex, 'GET', url, header)
 

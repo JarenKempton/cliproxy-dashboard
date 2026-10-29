@@ -41,6 +41,8 @@ function isCodexReset(v: Record<string, unknown>) {
 const isMetaQuota = (v: Record<string, unknown>) =>
   String(v.method).toUpperCase() === 'POST' && v.url === META_MINT_URL && !v.data
 
+const V8_PATHS = new Set(['/routing/cooldown/reset'])
+
 // Scalar settings, set with a `{ "value": ... }` body.
 const SETTINGS =
   'debug|logging-to-file|request-log|request-retry|max-retry-interval|proxy-url|routing/strategy|' +
@@ -84,6 +86,14 @@ const WRITE_RULES: Rule[] = [
   },
   // Remove one account; never the delete-everything variant.
   { methods: ['DELETE'], path: /^\/auth-files$/, check: (_, q) => !!q.get('name') && !q.has('all') },
+  {
+    methods: ['POST'],
+    path: /^\/routing\/cooldown\/reset$/,
+    check: (b) => {
+      const v = json(b)
+      return !!v && typeof v.auth_index === 'string' && !!v.auth_index.trim() && Object.keys(v).length === 1
+    },
+  },
   { methods: ['DELETE'], path: /^\/oauth-session$/, check: (_, q) => !!q.get('state') },
   {
     methods: ['POST'],
@@ -163,7 +173,8 @@ export function managementApp(target: string, managementKey: string, allowWrites
     if (state.locked) return deny(423, 'Bridge locked after a 401. Fix CPA_MANAGEMENT_KEY and restart the server.')
 
     const forward = async (body?: string) => {
-      const upstream = await fetch(`${target}${MANAGEMENT_PREFIX}${pathname}${url.search}`, {
+      const prefix = V8_PATHS.has(pathname) ? '/v8/management' : MANAGEMENT_PREFIX
+      const upstream = await fetch(`${target}${prefix}${pathname}${url.search}`, {
         method,
         headers: { ...auth, 'Content-Type': c.req.header('content-type') ?? 'application/json' },
         body: body || undefined,
