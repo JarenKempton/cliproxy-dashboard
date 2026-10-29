@@ -17,7 +17,7 @@ const BACKUP_DIR = '.backups'
 const MAX_BACKUPS = 50
 
 // GETs that mutate state or start flows for providers we don't use.
-const BLOCKED_GETS = [/^\/usage-queue/, /^\/(?!anthropic-auth-url|codex-auth-url|meta-auth-url)[a-z-]+-auth-url/]
+const BLOCKED_GETS = [/^\/usage-queue/, /^\/(?!anthropic-auth-url|codex-auth-url|meta-auth-url|xai-auth-url)[a-z-]+-auth-url/]
 
 // Upstream usage endpoints /api-call may reach (read-only quota lookups).
 const QUOTA_URLS = new Set([
