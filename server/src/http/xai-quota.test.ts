@@ -47,6 +47,11 @@ describe('Grok quota', () => {
     expect((await fetchQuota(account)).windows[0].usedPercent).toBe(0)
   })
 
+  test('leaves an unparseable reset time unknown', async () => {
+    respond({ config: { currentPeriod: { ...weekly, end: 'not-a-date' }, creditUsagePercent: 5 } })
+    expect((await fetchQuota(account)).windows[0].resetAtMs).toBeNull()
+  })
+
   test('sizes a monthly period from its own dates', async () => {
     respond({
       config: {

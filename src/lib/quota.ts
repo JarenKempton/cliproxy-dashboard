@@ -23,7 +23,10 @@ export class QuotaUnavailableError extends Error {}
 
 export const providerOf = (f: AuthFile) => (f.provider ?? f.type ?? '').toLowerCase()
 
-const parseTime = (s: unknown) => (typeof s === 'string' && s ? Date.parse(s) : null)
+const parseTime = (s: unknown) => {
+  const ms = typeof s === 'string' && s ? Date.parse(s) : NaN
+  return Number.isNaN(ms) ? null : ms
+}
 
 // --- Claude ---------------------------------------------------------------
 
