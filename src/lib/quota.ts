@@ -2,18 +2,24 @@
 // endpoints, via the proxy's /api-call (which substitutes the account token).
 
 import { upstreamCall, upstreamGet, type AuthFile } from './api'
-import { xaiWindows, type XaiConfig } from './xai-quota'
-import { QuotaUnavailableError, type QuotaWindow } from './quota-types'
-
-export { QuotaUnavailableError, type QuotaWindow } from './quota-types'
 
 const HOUR = 3600e3
 const WEEK = 168 * HOUR
+
+export type QuotaWindow = {
+  id: string
+  label: string
+  usedPercent: number
+  resetAtMs: number | null // null: window hasn't started yet
+  periodMs: number
+}
 
 // Codex "reset credits": each one resets the account's usage limits once.
 export type ResetCredits = { available: number; expiresAtMs: number[] }
 
 export type Quota = { windows: QuotaWindow[]; plan?: string; resetCredits?: ResetCredits }
+
+export class QuotaUnavailableError extends Error {}
 
 export const providerOf = (f: AuthFile) => (f.provider ?? f.type ?? '').toLowerCase()
 
@@ -245,6 +251,10 @@ async function metaQuota(f: AuthFile): Promise<Quota> {
 
 // --- xAI (Grok) -----------------------------------------------------------
 
+// The billing endpoint the Grok Build CLI reads. It answers in proto3 JSON,
+// which omits zero values, so a missing percentage means nothing used yet.
+const XAI_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits'
+
 const XAI_HEADERS = {
   Authorization: 'Bearer $TOKEN$',
   'X-XAI-Token-Auth': 'xai-grok-cli',
@@ -252,12 +262,23 @@ const XAI_HEADERS = {
   Accept: 'application/json',
 }
 
-const XAI_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits'
+type XaiBilling = {
+  config?: {
+    currentPeriod?: { type?: string; start?: string; end?: string }
+    creditUsagePercent?: number
+  }
+} | null
 
 async function xaiQuota(f: AuthFile): Promise<Quota> {
-  const body = (await upstreamGet(f.auth_index, XAI_BILLING_URL, XAI_HEADERS)) as { config?: XaiConfig } | null
-  const config = (body ?? {}).config ?? {}
-  return { windows: xaiWindows(config) }
+  const { currentPeriod: period, creditUsagePercent } = ((await upstreamGet(f.auth_index, XAI_BILLING_URL, XAI_HEADERS)) as XaiBilling)?.config ?? {}
+  if (!period) throw new QuotaUnavailableError('xAI returned no usage period.')
+  const start = parseTime(period.start)
+  const resetAtMs = parseTime(period.end)
+  const monthly = period.type === 'USAGE_PERIOD_TYPE_MONTHLY'
+  const periodMs = monthly ? (start && resetAtMs && resetAtMs > start ? resetAtMs - start : 30 * 24 * HOUR) : WEEK
+  return {
+    windows: [{ id: monthly ? 'monthly' : 'weekly', label: monthly ? 'Monthly' : 'Weekly', usedPercent: creditUsagePercent ?? 0, resetAtMs, periodMs }],
+  }
 }
 
 // --------------------------------------------------------------------------

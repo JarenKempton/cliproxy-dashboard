@@ -1,149 +1,73 @@
-import { describe, expect, test } from 'bun:test'
-import { QuotaUnavailableError } from '../../../src/lib/quota-types'
-import { xaiWindows, type XaiConfig } from '../../../src/lib/xai-quota'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { type AuthFile } from '../../../src/lib/api'
+import { describeQuotaError } from '../../../src/lib/errors'
+import { fetchQuota } from '../../../src/lib/quota'
 
-describe('xaiWindows', () => {
-  test('parses the real weekly response body (1% usage)', () => {
-    const config = {
-      currentPeriod: {
-        type: 'USAGE_PERIOD_TYPE_WEEKLY',
-        start: '2026-10-22T10:04:12.403150+00:00',
-        end: '2026-10-29T10:04:12.403150+00:00',
+const account: AuthFile = { name: 'xai-test.json', auth_index: 'xai-test', provider: 'xai' }
+const DAY = 86400e3
+let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, 'fetch'>>
+
+function respond(body: unknown) {
+  fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ status_code: 200, body }))
+}
+
+afterEach(() => fetchSpy?.mockRestore())
+
+const weekly = {
+  type: 'USAGE_PERIOD_TYPE_WEEKLY',
+  start: '2026-10-22T10:04:12.403150+00:00',
+  end: '2026-10-29T10:04:12.403150+00:00',
+}
+
+describe('Grok quota', () => {
+  test('reads the weekly credit pool through the proxy with the Grok CLI headers', async () => {
+    respond({
+      config: {
+        currentPeriod: weekly,
+        creditUsagePercent: 1.0,
+        productUsage: [{ product: 'GrokBuild', usagePercent: 1.0 }, { product: 'GrokChat' }],
+        isUnifiedBillingUser: true,
       },
-      creditUsagePercent: 1.0,
-      onDemandCap: { val: 0 },
-      onDemandUsed: { val: 0 },
-      productUsage: [{ product: 'GrokBuild', usagePercent: 1.0 }, { product: 'GrokChat' }, { product: 'GrokVoice' }],
-      isUnifiedBillingUser: true,
-      prepaidBalance: { val: 0 },
-      topUpMethod: 'TOP_UP_METHOD_SAVED_PAYMENT_METHOD',
-      billingPeriodStart: '2026-10-22T10:04:12.403150+00:00',
-      billingPeriodEnd: '2026-10-29T10:04:12.403150+00:00',
-    }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0]).toMatchObject({
-      id: 'weekly',
-      label: 'Weekly',
-      usedPercent: 1.0,
-      resetAtMs: Date.parse('2026-10-29T10:04:12.403150+00:00'),
-      periodMs: 7 * 24 * 3600e3,
+    })
+    expect(await fetchQuota(account)).toEqual({
+      windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 1, resetAtMs: Date.parse(weekly.end), periodMs: 7 * DAY }],
+    })
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/v0/management/api-call')
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      authIndex: 'xai-test',
+      method: 'GET',
+      url: 'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
+      header: { Authorization: 'Bearer $TOKEN$', 'X-XAI-Token-Auth': 'xai-grok-cli' },
     })
   })
 
-  test('omitted creditUsagePercent with currentPeriod yields 0%', () => {
-    const config: XaiConfig = {
-      currentPeriod: {
-        type: 'USAGE_PERIOD_TYPE_WEEKLY',
-        start: '2026-10-22T10:04:12.403150+00:00',
-        end: '2026-10-29T10:04:12.403150+00:00',
+  test('treats an omitted percentage as nothing used yet', async () => {
+    respond({ config: { currentPeriod: weekly } })
+    expect((await fetchQuota(account)).windows[0].usedPercent).toBe(0)
+  })
+
+  test('sizes a monthly period from its own dates', async () => {
+    respond({
+      config: {
+        currentPeriod: { type: 'USAGE_PERIOD_TYPE_MONTHLY', start: '2026-10-01T00:00:00Z', end: '2026-11-01T00:00:00Z' },
+        creditUsagePercent: 10,
       },
-      billingPeriodStart: '2026-10-22T10:04:12.403150+00:00',
-      billingPeriodEnd: '2026-10-29T10:04:12.403150+00:00',
-    }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0]).toMatchObject({
-      id: 'weekly',
-      label: 'Weekly',
-      usedPercent: 0,
-      resetAtMs: Date.parse('2026-10-29T10:04:12.403150+00:00'),
     })
+    expect((await fetchQuota(account)).windows).toEqual([
+      { id: 'monthly', label: 'Monthly', usedPercent: 10, resetAtMs: Date.parse('2026-11-01T00:00:00Z'), periodMs: 31 * DAY },
+    ])
   })
 
-  test('legacy monthly shape uses monthlyLimit/used in cents', () => {
-    const config: XaiConfig = {
-      monthlyLimit: { val: 2000 },
-      used: { val: 500 },
-      billingPeriodStart: '2026-10-01T00:00:00Z',
-      billingPeriodEnd: '2026-10-31T23:59:59Z',
+  test('reports a response without a usage period as unavailable', async () => {
+    for (const body of [{}, { config: {} }, null]) {
+      respond(body)
+      const error = await fetchQuota(account).then(
+        () => null,
+        (e: unknown) => describeQuotaError(e, 'xai'),
+      )
+      expect(error).toMatchObject({ title: 'Quota unavailable', code: 'no_usage' })
+      fetchSpy.mockRestore()
     }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0]).toMatchObject({
-      id: 'monthly',
-      label: 'Monthly',
-      usedPercent: 25,
-      resetAtMs: Date.parse('2026-10-31T23:59:59Z'),
-    })
-  })
-
-  test('empty config throws QuotaUnavailableError', () => {
-    const config: XaiConfig = {}
-    expect(() => xaiWindows(config)).toThrow(QuotaUnavailableError)
-    expect(() => xaiWindows(config)).toThrow('xAI returned no usage percentages.')
-  })
-
-  test('unparseable currentPeriod.end falls back to billingPeriodEnd', () => {
-    const config: XaiConfig = {
-      currentPeriod: {
-        type: 'USAGE_PERIOD_TYPE_WEEKLY',
-        start: '2026-10-22T10:04:12.403150+00:00',
-        end: 'not-a-date',
-      },
-      creditUsagePercent: 5.0,
-      billingPeriodEnd: '2026-10-29T10:04:12.403150+00:00',
-    }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0].resetAtMs).toBe(Date.parse('2026-10-29T10:04:12.403150+00:00'))
-  })
-
-  test('legacy cents as strings ("2000"/"500" → 25%)', () => {
-    const config: XaiConfig = {
-      monthlyLimit: { val: '2000' as unknown as number },
-      used: { val: '500' as unknown as number },
-      billingPeriodStart: '2026-10-01T00:00:00Z',
-      billingPeriodEnd: '2026-10-31T23:59:59Z',
-    }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0]).toMatchObject({
-      id: 'monthly',
-      label: 'Monthly',
-      usedPercent: 25,
-    })
-  })
-
-  test('currentPeriod without percent plus legacy fields → legacy percent', () => {
-    const config: XaiConfig = {
-      currentPeriod: {
-        type: 'USAGE_PERIOD_TYPE_MONTHLY',
-        start: '2026-10-01T00:00:00Z',
-        end: '2026-10-31T23:59:59Z',
-      },
-      monthlyLimit: { val: 2000 },
-      used: { val: 500 },
-      billingPeriodStart: '2026-10-01T00:00:00Z',
-      billingPeriodEnd: '2026-10-31T23:59:59Z',
-    }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0]).toMatchObject({
-      id: 'monthly',
-      label: 'Monthly',
-      usedPercent: 25,
-    })
-  })
-
-  test('monthly currentPeriod from 2026-10-01 to 2026-11-01 gets periodMs = 31 days', () => {
-    const config: XaiConfig = {
-      currentPeriod: {
-        type: 'USAGE_PERIOD_TYPE_MONTHLY',
-        start: '2026-10-01T00:00:00Z',
-        end: '2026-11-01T00:00:00Z',
-      },
-      creditUsagePercent: 10.0,
-    }
-
-    const windows = xaiWindows(config)
-    expect(windows).toHaveLength(1)
-    expect(windows[0].periodMs).toBe(31 * 86400e3)
   })
 })
