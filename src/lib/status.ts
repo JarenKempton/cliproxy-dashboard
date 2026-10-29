@@ -17,13 +17,17 @@ function friendlyMessage(raw?: string): string | undefined {
   return raw
 }
 
-export function accountStatus(f: AuthFile, now: number): { tone: Tone; text: string } {
-  if (f.disabled) return { tone: 'off', text: 'Off' }
-  const message = friendlyMessage(f.status_message)
-  const cooldown = (f.cooldowns ?? [])
+export function cooldownUntil(f: AuthFile, now: number): number | undefined {
+  return (f.cooldowns ?? [])
     .map((c) => Date.parse(c.retry_at))
     .filter((t) => t > now)
     .sort((a, b) => b - a)[0]
+}
+
+export function accountStatus(f: AuthFile, now: number): { tone: Tone; text: string } {
+  if (f.disabled) return { tone: 'off', text: 'Off' }
+  const message = friendlyMessage(f.status_message)
+  const cooldown = cooldownUntil(f, now)
   if (cooldown) return { tone: 'warn', text: `${message ?? 'Cooling down'} · back ${formatRelative(cooldown, now)}` }
   if (f.unavailable || f.status === 'error') return { tone: 'bad', text: message ?? 'Error' }
   return { tone: 'good', text: 'Active' }

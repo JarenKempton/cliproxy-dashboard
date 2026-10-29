@@ -7,6 +7,7 @@ import { PROVIDER_NAMES, providerOf, type QuotaWindow } from '../lib/quota'
 import { accountStatus } from '../lib/status'
 import { accountName, useStore } from '../lib/store'
 import { ActivityChart } from './ActivityChart'
+import { ClearCooldown } from './ClearCooldown'
 import type { AccountActivity } from '../lib/usage'
 import { ProviderMark } from './ProviderMark'
 import { ResetCredits } from './ResetCredits'
@@ -136,6 +137,7 @@ export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActi
 ) : (
           <span className="qcard-status" />
         )}
+        <ClearCooldown file={file} />
         {state?.at && (
           <span className="mono faint" title={`Quota read at ${formatStamp(state.at)}`}>
             read {formatAgo(state.at, now)}

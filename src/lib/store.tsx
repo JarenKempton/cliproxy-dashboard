@@ -1,7 +1,7 @@
 // Shared account + quota state for all pages, with background refresh.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ApiError, deleteAuthFile, listAuthFiles, setDisabled, type AuthFile } from './api'
+import { ApiError, clearCooldown as resetCooldown, deleteAuthFile, listAuthFiles, setDisabled, type AuthFile } from './api'
 import { describeQuotaError, type QuotaError } from './errors'
 import { fetchQuota, providerOf, supportsQuota, type Quota } from './quota'
 
@@ -41,6 +41,7 @@ type Store = {
   refreshQuota: (file: AuthFile) => Promise<void>
   toggle: (file: AuthFile) => Promise<void>
   remove: (file: AuthFile) => Promise<void>
+  clearCooldown: (file: AuthFile) => Promise<void>
   reloadAccounts: () => Promise<AuthFile[] | null>
 }
 
@@ -149,9 +150,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [withBusy, reloadAccounts],
   )
 
+  const clearCooldown = useCallback(
+    (file: AuthFile) =>
+      withBusy(file.auth_index, async () => {
+        await resetCooldown(file.auth_index)
+        await reloadAccounts()
+      }),
+    [withBusy, reloadAccounts],
+  )
+
   const value = useMemo(
-    () => ({ files, quotas, fatal, loaded, busy, now, refresh, refreshQuota, toggle, remove, reloadAccounts }),
-    [files, quotas, fatal, loaded, busy, now, refresh, refreshQuota, toggle, remove, reloadAccounts],
+    () => ({ files, quotas, fatal, loaded, busy, now, refresh, refreshQuota, toggle, remove, clearCooldown, reloadAccounts }),
+    [files, quotas, fatal, loaded, busy, now, refresh, refreshQuota, toggle, remove, clearCooldown, reloadAccounts],
   )
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

@@ -1,5 +1,6 @@
 import { ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { ClearCooldown } from '../components/ClearCooldown'
 import { ProviderMark } from '../components/ProviderMark'
 import { ConfirmDialog, PageHead, Switch, toast } from '../components/ui'
 import { cancelLogin, loginStatus, startLogin, submitLoginCallback, type AuthFile, type LoginProvider } from '../lib/api'
@@ -164,7 +165,8 @@ function AccountRow({ file, onRemove }: { file: AuthFile; onRemove: (f: AuthFile
         </div>
       </div>
       <div className={`arow-status ${status.tone}`} title={status.text}>
-        {status.tone === 'warn' || status.tone === 'bad' ? status.text : ''}
+        <span className="arow-status-text">{status.tone === 'warn' || status.tone === 'bad' ? status.text : ''}</span>
+        <ClearCooldown file={file} />
       </div>
       <div className="mono faint arow-stat" title="Requests since the proxy started">
         {file.success ?? 0} ok · {file.failed ?? 0} failed

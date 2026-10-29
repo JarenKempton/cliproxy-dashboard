@@ -220,6 +220,18 @@
   color: var(--accent);
 }
 
+.qcard-foot:has(.cooldown-clear) {
+  height: auto;
+  min-height: 40px;
+  flex-wrap: wrap;
+  padding-block: 8px;
+}
+
+.qcard-foot:has(.cooldown-clear) .qcard-status {
+  flex: 1 0 100%;
+  white-space: normal;
+}
+
 .qcard-status.warn {
   color: var(--warn);
 }
