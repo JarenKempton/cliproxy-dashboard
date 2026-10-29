@@ -16,9 +16,10 @@ type Login = {
   status: 'wait' | 'ok' | 'error'
   error?: string
   userCode?: string
+  flow?: string
 }
 
-const LOGIN_LABEL: Record<LoginProvider, string> = { anthropic: 'Claude', codex: 'Codex', meta: 'Muse Code' }
+const LOGIN_LABEL: Record<LoginProvider, string> = { anthropic: 'Claude', codex: 'Codex', meta: 'Muse Code', xai: 'Grok' }
 
 function AddAccount({ onDone }: { onDone: () => void }) {
   const [login, setLogin] = useState<Login | null>(null)
@@ -58,8 +59,8 @@ function AddAccount({ onDone }: { onDone: () => void }) {
 
   const begin = async (provider: LoginProvider) => {
     try {
-      const { url, state, user_code } = await startLogin(provider)
-      setLogin({ provider, url, state, status: 'wait', userCode: user_code })
+      const { url, state, user_code, flow } = await startLogin(provider)
+      setLogin({ provider, url, state, status: 'wait', userCode: user_code, flow })
       setCallback('')
       window.open(url, '_blank', 'noopener')
     } catch (err) {
@@ -94,6 +95,9 @@ function AddAccount({ onDone }: { onDone: () => void }) {
         <button className="btn" onClick={() => begin('meta')}>
           <Plus size={14} /> Add Muse Code account
         </button>
+        <button className="btn" onClick={() => begin('xai')}>
+          <Plus size={14} /> Add Grok account
+        </button>
       </div>
     )
   }
@@ -119,15 +123,16 @@ function AddAccount({ onDone }: { onDone: () => void }) {
           </button>
         </div>
       </div>
-      {login.status === 'wait' && login.userCode && (
+      {login.status === 'wait' && (login.flow === 'device' || login.userCode) && (
         <div className="login-body">
           <p className="muted">
-            On the Meta page that just opened, check the code is <strong className="mono">{login.userCode}</strong> and
-            approve it with the account you subscribed with. This panel updates on its own once you approve.
+            On the {login.provider === 'meta' ? 'Meta' : LOGIN_LABEL[login.provider]} page that just opened,
+            {login.userCode && <> check the code is <strong className="mono">{login.userCode}</strong> and</>} approve it with
+            the account you subscribed with. This panel updates on its own once you approve.
           </p>
         </div>
       )}
-      {login.status === 'wait' && !login.userCode && (
+      {login.status === 'wait' && login.flow !== 'device' && !login.userCode && (
         <div className="login-body">
           <p className="muted">
             Sign in on the page that just opened. If it ends on an error page (common when this dashboard isn’t on the same

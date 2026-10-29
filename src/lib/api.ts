@@ -137,7 +137,7 @@ export async function upstreamCall(
 
 // --- Login (OAuth) -----------------------------------------------------------
 
-export type LoginProvider = 'anthropic' | 'codex' | 'meta'
+export type LoginProvider = 'anthropic' | 'codex' | 'meta' | 'xai'
 
 export type LoginStart = { url: string; state: string; flow?: string; user_code?: string }
 

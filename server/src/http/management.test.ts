@@ -35,3 +35,35 @@ describe('cooldown reset bridge', () => {
     }
   })
 })
+
+describe('account login bridge', () => {
+  test('forwards the supported login flows including Grok with server-side authentication', async () => {
+    const login = { url: 'https://login.example/device', state: 'device-session', flow: 'device', user_code: 'ABCD-EFGH' }
+    for (const provider of ['anthropic', 'codex', 'meta', 'xai']) {
+      fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(login))
+      const path = `/v0/management/${provider}-auth-url?is_webui=true`
+      const res = await managementApp(TARGET, 'secret', false).request(path)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual(login)
+      expect(fetchSpy).toHaveBeenCalledWith(`${TARGET}${path}`, expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer secret' }),
+      }))
+      fetchSpy.mockRestore()
+    }
+  })
+
+  test('keeps unrelated login flows and Grok callback writes blocked', async () => {
+    fetchSpy = spyOn(globalThis, 'fetch')
+    const app = managementApp(TARGET, 'secret', false)
+    const res = await app.request('/v0/management/gemini-auth-url?is_webui=true')
+    expect(res.status).toBe(403)
+    const callback = await app.request('/v0/management/oauth-callback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'xai', redirect_url: 'http://localhost/callback?code=not-needed' }),
+    })
+    expect(callback.status).toBe(403)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
