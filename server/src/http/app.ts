@@ -9,7 +9,7 @@ import { clearIdentityName, listDevices, nameIdentity, type IdentityKind } from 
 import type { Tailnet } from '../tailnet'
 import { hashKey } from '../usage/cliproxy-record'
 import type { PriceBook } from '../usage/pricing'
-import { RANGES, recentActivity, usageSummary, type Range } from '../usage/summary'
+import { accountHours, RANGES, recentActivity, usageSummary, type Range } from '../usage/summary'
 
 const isKind = (k: unknown): k is IdentityKind => k === 'key' || k === 'ip'
 
@@ -46,6 +46,12 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
   app.get('/activity', (c) => {
     const minutes = Math.min(Math.max(Number(c.req.query('minutes')) || 5, 1), 60)
     return c.json(recentActivity(db, minutes))
+  })
+
+  // ?days=21: proxy cost per account and hour, to chart quota burn between readings.
+  app.get('/account-hours', (c) => {
+    const days = Math.min(Math.max(Number(c.req.query('days')) || 21, 1), 35)
+    return c.json(accountHours(db, Date.now() - days * 86400e3))
   })
 
   // Machines as seen by the proxy: proxy keys and client IPs, with names.

@@ -2,7 +2,10 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { formatStamp } from '../lib/format'
 import { accountName, providerOf, useStore } from '../lib/store'
+import type { PoolAccount } from '../lib/pool'
 import { pickLaneWindow, projectLane, startOfDay, timelineSpan, type TimelineMode } from '../lib/timeline'
+import { getAccountHours, type AccountHour } from '../lib/usage'
+import { PoolRow } from './PoolRow'
 import { ProviderMark } from './ProviderMark'
 import { Segmented } from './ui'
 
@@ -23,6 +26,19 @@ function useCompact() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
   return compact
+}
+
+// Proxy cost per account and hour, for the pool rows; refreshed every 5 minutes.
+const HISTORY_DAYS = 21
+function useAccountHours() {
+  const [hours, setHours] = useState<AccountHour[]>([])
+  useEffect(() => {
+    const load = () => getAccountHours(HISTORY_DAYS).then(setHours).catch(() => {}) // the lanes still work without it
+    load()
+    const timer = setInterval(load, 300e3)
+    return () => clearInterval(timer)
+  }, [])
+  return hours
 }
 
 export function Timeline() {
@@ -57,6 +73,19 @@ export function Timeline() {
       return { f, windows, w, bars: w ? projectLane(w, span.startMs, span.endMs, now) : [] }
     })
     .filter((l) => l.w)
+
+  const hours = useAccountHours()
+  const pools = new Map<string, PoolAccount[]>()
+  if (!session) {
+    for (const f of files.filter((file) => !file.disabled)) {
+      const weekly = quotas[f.auth_index]?.quota?.windows.find((w) => w.id === 'weekly')
+      if (!weekly?.resetAtMs) continue
+      const provider = providerOf(f)
+      const label = f.email ?? accountName(f)
+      const cost = new Map(hours.filter((h) => h.provider === provider && h.account === label).map((h) => [h.hour, h.costMicros]))
+      pools.set(provider, [...(pools.get(provider) ?? []), { cost, window: { ...weekly, resetAtMs: weekly.resetAtMs } }])
+    }
+  }
 
   const dateLabel = (d: Date) => `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`
   const rangeLabel = session ? `${DAY_FMT.format(days[0])} ${dateLabel(days[0])}` : `${dateLabel(days[0])} – ${dateLabel(days[days.length - 1])}`
@@ -117,6 +146,10 @@ export function Timeline() {
             isWeekend(d) ? <div key={i} style={{ left: `${(i / span.days) * 100}%`, width: `${100 / span.days}%` }} /> : null,
           )}
         </div>
+
+        {[...pools].map(([provider, accounts]) =>
+          accounts.length > 1 ? <PoolRow key={provider} provider={provider} accounts={accounts} spanStart={span.startMs} spanEnd={span.endMs} now={now} /> : null,
+        )}
 
         {lanes.length === 0 && <div className="tl-empty faint">No active account has a {mode === 'weekly' ? 'weekly' : '5-hour'} window to show.</div>}
 
