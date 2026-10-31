@@ -482,7 +482,7 @@
   background: var(--accent);
 }
 
-/* Pool row: every account of a provider as one quota, with history, projection and safe pace. */
+/* Pool row: every account of a provider as one quota, with history, projection and sustainable pace. */
 .tl-pool .pool-track {
   height: 180px;
 }
@@ -510,29 +510,23 @@
   color: var(--fg-2);
 }
 
-.pool-sub {
-  margin-top: 3px;
-  padding-left: 15px;
+.pool-left small {
+  display: block;
+  margin-top: 6px;
   font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--fg-2);
 }
 
 .pool-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   margin: 10px 0 0 15px;
-  padding: 2px 9px 2px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
-}
-
-.pool-pill i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .pool-pill.good {
@@ -603,17 +597,21 @@
   opacity: 0.6;
 }
 
-.pool-grid line {
+line.pool-grid {
   stroke: var(--fg-3);
   stroke-dasharray: 2 4;
   opacity: 0.4;
 }
 
-.pool-grid text,
+text.pool-grid,
 .pool-reset text {
   font-family: var(--mono);
   font-size: 10px;
   fill: var(--fg-3);
+  paint-order: stroke;
+  stroke: var(--bg-card);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
 .pool-base {

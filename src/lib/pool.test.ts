@@ -25,7 +25,21 @@ describe('quota pool', () => {
     const afterRefill = pool.projected.find((p) => p.t > Date.UTC(2026, 9, 31, 17))!
     expect(afterRefill.pool).toBeGreaterThan(70)
     expect(pool.usualPerDay).toBeGreaterThan(0)
-    expect(pool.safePerDay).toBeGreaterThan(0)
+  })
+
+  test('sustainable pace is one refill per window, whatever span is on screen', () => {
+    const week = poolOf([drained, half], spanStart, Date.UTC(2026, 10, 1), now)!
+    const twoWeeks = poolOf([drained, half], spanStart, spanEnd, now)!
+    expect(week.sustainablePerDay).toBe(twoWeeks.sustainablePerDay)
+    expect(week.sustainablePerDay).toBeCloseTo(100 / 5.2, 0)
+  })
+
+  test('says when the usual pace runs the pool dry', () => {
+    const heavy = (used: number) => account(used, Date.UTC(2026, 10, 5, 3), [[Date.UTC(2026, 9, 29, 14), 4000], [Date.UTC(2026, 9, 30, 14), 4000]])
+    const pool = poolOf([heavy(80), heavy(80)], spanStart, spanEnd, now)!
+    expect(pool.runsOutAt).toBeGreaterThan(now)
+    expect(pool.runsOutAt).toBeLessThan(Date.UTC(2026, 10, 5, 3))
+    expect(poolOf([drained, half], spanStart, spanEnd, now)!.runsOutAt).toBeNull()
   })
 
   test('rebuilds history from cost: the drained account was full before its spend', () => {

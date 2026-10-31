@@ -1,8 +1,10 @@
 // A provider's accounts as one quota pool (100% = every account full).
 // History is rebuilt from proxy cost, calibrated so each account lands on its
-// live reading; the projection runs your usual pace forward, and the safe pace
-// is the fastest even pace the upcoming resets can sustain. Weekends count as
-// light days, and requests drain the account that resets soonest first.
+// live reading; the projection runs your usual pace forward. The sustainable
+// pace spends exactly one refill of every account per window, so it does not
+// depend on how much of the calendar is on screen. Paces are per workday:
+// weekends count as light days. Requests drain the account that resets soonest
+// first.
 
 import type { QuotaWindow } from './quota'
 
@@ -23,8 +25,8 @@ export type Pool = {
   safe: PoolPoint[]
   resets: number[]
   usualPerDay: number
-  safePerDay: number
-  ahead: number
+  sustainablePerDay: number
+  runsOutAt: number | null
 }
 
 export function workWeight(t: number) {
@@ -58,7 +60,6 @@ function simulate(slots: Slot[], from: number, to: number, perDay: number) {
   const s = slots.map((x) => ({ left: x.left, resets: [...x.resets] }))
   const level = () => s.reduce((sum, x) => sum + x.left, 0) / s.length
   const points: PoolPoint[] = [{ t: from, pool: level() }]
-  let short = false
   for (let t = from; t < to; t += HOUR) {
     for (const x of s) {
       while (x.resets.length && t >= x.resets[0]) {
@@ -72,21 +73,15 @@ function simulate(slots: Slot[], from: number, to: number, perDay: number) {
       x.left -= take
       burn -= take
     }
-    if (burn > 1e-6) short = true
     points.push({ t: Math.min(t + HOUR, to), pool: level() })
   }
-  return { points, short }
+  return points
 }
 
-function fastestEvenPace(slots: Slot[], from: number, to: number) {
-  let lo = 0
-  let hi = 200
-  for (let i = 0; i < 24; i++) {
-    const mid = (lo + hi) / 2
-    if (simulate(slots, from, to, mid).short) hi = mid
-    else lo = mid
-  }
-  return lo
+function workdaysIn(from: number, to: number) {
+  let hours = 0
+  for (let t = floorHour(from); t < to; t += HOUR) hours += workWeight(t)
+  return hours / WORKDAY
 }
 
 export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: number, now: number): Pool | null {
@@ -109,25 +104,26 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   const left = accounts.reduce((s, a) => s + Math.max(0, 100 - a.window.usedPercent), 0) / accounts.length
   past.push({ t: now, pool: left })
 
-  let weightedHours = 0
-  for (let t = floorHour(now - HISTORY_MS); t < now; t += HOUR) weightedHours += workWeight(t)
   const usedRecently = accounts.reduce((s, a, i) => s + costBetween(a.cost, now - HISTORY_MS, now) / microsPerPercent[i], 0)
-  const usualPerDay = usedRecently / accounts.length / (weightedHours / WORKDAY)
+  const usualPerDay = usedRecently / accounts.length / workdaysIn(now - HISTORY_MS, now)
+  const period = Math.max(...accounts.map((a) => a.window.periodMs))
+  const sustainablePerDay = 100 / workdaysIn(now, now + period)
 
-  const slotsNow = accounts.map((a) => ({ left: Math.max(0, 100 - a.window.usedPercent), resets: resetsBetween(a.window, now, spanEnd) }))
-  const slotsStart = accounts.map((a, i) => ({ left: levelAt(i, spanStart), resets: resetsBetween(a.window, spanStart, spanEnd) }))
-  const safePerDay = fastestEvenPace(slotsNow, now, spanEnd)
-  const safePast = simulate(slotsStart, spanStart, now, fastestEvenPace(slotsStart, spanStart, spanEnd)).points
-  const safeAhead = simulate(slotsNow, now, spanEnd, safePerDay).points
+  const slotsFrom = (from: number, to: number, level: (i: number) => number) =>
+    accounts.map((a, i) => ({ left: level(i), resets: resetsBetween(a.window, from, to) }))
+  const liveLevel = (i: number) => Math.max(0, 100 - accounts[i].window.usedPercent)
+  const ahead = simulate(slotsFrom(now, now + period, liveLevel), now, now + period, usualPerDay)
+  const dry = ahead.find((p) => p.pool < 0.5)
+  const safePast = simulate(slotsFrom(spanStart, now, (i) => levelAt(i, spanStart)), spanStart, now, sustainablePerDay)
 
   return {
     left,
     past,
-    projected: simulate(slotsNow, now, spanEnd, usualPerDay).points,
-    safe: [...safePast.slice(0, -1), ...safeAhead],
+    projected: simulate(slotsFrom(now, spanEnd, liveLevel), now, spanEnd, usualPerDay),
+    safe: [...safePast.slice(0, -1), ...simulate(slotsFrom(now, spanEnd, liveLevel), now, spanEnd, sustainablePerDay)],
     resets: [...new Set(accounts.flatMap((a) => resetsBetween(a.window, spanStart, spanEnd)))].sort((a, b) => a - b),
     usualPerDay,
-    safePerDay,
-    ahead: left - safePast[safePast.length - 1].pool,
+    sustainablePerDay,
+    runsOutAt: dry ? dry.t : null,
   }
 }
