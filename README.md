@@ -2,7 +2,7 @@
 
 A web UI for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)'s management API: an alternative to the built-in management panel, plus a usage history that the proxy itself does not keep.
 
-<img width="1440" alt="Quota page: account quota windows and a timeline of when each resets" src="https://github.com/user-attachments/assets/df8d1645-b4a3-4c4e-9a8d-65fab8425780" />
+<!-- Screenshots: mock-data images go here (to be added under docs/). -->
 
 ## What it does
 
@@ -13,10 +13,6 @@ A web UI for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)'s manag
 | Accounts | Add Claude and Codex accounts through OAuth, enable, disable, or remove them |
 | API keys | Create, label and revoke client keys; optional one-command setup of Claude Code / Codex on another machine |
 | Config   | Edit `config.yaml` as a form or YAML, review a diff before saving; every save snapshots the previous file |
-
-<img width="1440" alt="Usage page: cost by provider over 30 days and a breakdown by model" src="https://github.com/user-attachments/assets/405202f2-8deb-4c11-8b41-a07f8e334910" />
-
-<img width="1440" alt="API keys page: labeled client keys and the connect-a-machine form" src="https://github.com/user-attachments/assets/1861fbb3-5fa0-4966-a8f3-d2736368886d" />
 
 It is one Bun process: a Hono server that serves the built React app, bridges `/v0/management/*` to the proxy, and collects the proxy's usage records into SQLite.
 
