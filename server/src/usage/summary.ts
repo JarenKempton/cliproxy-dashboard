@@ -252,6 +252,19 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
 
 export type UsageSummary = ReturnType<typeof usageSummary>
 
+// Proxy cost per upstream account and hour, keyed by provider and account
+// label: re-adding an account gives it a new auth index but keeps its label.
+export function accountHours(db: Db, sinceMs: number) {
+  const hour = sql<number>`(${requests.occurredAt} / ${HOUR}) * ${HOUR}`
+  const provider = sql<string>`lower(${requests.provider})`
+  return db
+    .select({ provider, account: sql<string>`${requests.accountLabel}`, hour, costMicros: sql<number>`coalesce(sum(${requests.costMicros}), 0)` })
+    .from(requests)
+    .where(and(eq(requests.source, 'cliproxy'), gte(requests.occurredAt, new Date(sinceMs)), isNotNull(requests.accountLabel)))
+    .groupBy(provider, requests.accountLabel, hour)
+    .all()
+}
+
 const emptyPoint = () => ({ costMicros: 0, tokens: 0 })
 
 function getOr<K, V>(map: Map<K, V>, key: K, create: () => V): V {

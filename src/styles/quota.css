@@ -482,6 +482,158 @@
   background: var(--accent);
 }
 
+/* Pool row: every account of a provider as one quota, with history, projection and safe pace. */
+.tl-pool .pool-track {
+  height: 180px;
+}
+
+.pool-chart {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.pool-left {
+  margin-top: 10px;
+  padding-left: 15px;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.pool-left span {
+  margin-left: 1px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+
+.pool-sub {
+  margin-top: 3px;
+  padding-left: 15px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.pool-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0 15px;
+  padding: 2px 9px 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pool-pill i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pool-pill.good {
+  color: var(--good);
+  background: color-mix(in oklch, var(--good) 14%, transparent);
+}
+
+.pool-pill.warn {
+  color: var(--warn);
+  background: color-mix(in oklch, var(--warn) 14%, transparent);
+}
+
+.pool-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0 0 15px;
+}
+
+.pool-stats dt {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+
+.pool-stats dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.pool-dot {
+  fill: var(--accent);
+}
+
+.pool-area {
+  fill: url(#pool-dots);
+  opacity: 0.55;
+}
+
+.pool-area.future {
+  opacity: 0.25;
+}
+
+.pool-behind {
+  fill: var(--warn);
+  opacity: 0.4;
+}
+
+.pool-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.pool-line.future {
+  stroke-dasharray: 5 3;
+}
+
+.pool-safe {
+  fill: none;
+  stroke: var(--fg-1);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+
+.pool-grid line {
+  stroke: var(--fg-3);
+  stroke-dasharray: 2 4;
+  opacity: 0.4;
+}
+
+.pool-grid text,
+.pool-reset text {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--fg-3);
+}
+
+.pool-base {
+  stroke: var(--line);
+}
+
+.pool-reset path {
+  fill: var(--good);
+}
+
+.pool-reset text {
+  fill: var(--good);
+}
+
+.pool-now {
+  fill: var(--accent);
+  stroke: var(--bg-card);
+  stroke-width: 2;
+}
+
 .tl-empty {
   padding: 28px;
   text-align: center;
