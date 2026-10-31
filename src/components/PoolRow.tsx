@@ -1,33 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { poolOf, type PoolAccount, type PoolPoint } from '../lib/pool'
+import { formatStamp } from '../lib/format'
+import { poolOf, type Pool, type PoolAccount, type PoolPoint } from '../lib/pool'
 import { PROVIDER_NAMES } from '../lib/quota'
 import { ProviderMark } from './ProviderMark'
 
-const ON_PACE_POINTS = 2
-
-function useWidth() {
+function useSize() {
   const ref = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState(0)
+  const [size, setSize] = useState({ width: 0, height: 0 })
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
+    const observer = new ResizeObserver(() => setSize({ width: el.clientWidth, height: el.clientHeight }))
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-  return [ref, width] as const
+  return [ref, size] as const
 }
 
-function paceLabel(ahead: number) {
-  if (Math.abs(ahead) < ON_PACE_POINTS) return { tone: 'good', text: 'On pace' }
-  return ahead > 0 ? { tone: 'good', text: `${Math.round(ahead)} pts ahead` } : { tone: 'warn', text: `${Math.round(-ahead)} pts behind` }
+function paceLabel(pool: Pool, now: number) {
+  if (pool.runsOutAt === null) return { tone: 'good', text: 'On pace' }
+  if (pool.runsOutAt <= now) return { tone: 'warn', text: 'Empty' }
+  return { tone: 'warn', text: `Runs out ${formatStamp(pool.runsOutAt, now)}` }
 }
 
 export function PoolRow({ provider, accounts, spanStart, spanEnd, now }: { provider: string; accounts: PoolAccount[]; spanStart: number; spanEnd: number; now: number }) {
-  const [ref, width] = useWidth()
+  const [ref, { width, height }] = useSize()
   const pool = useMemo(() => poolOf(accounts, spanStart, spanEnd, now), [accounts, spanStart, spanEnd, now])
   if (!pool) return null
-  const pace = paceLabel(pool.ahead)
+  const pace = paceLabel(pool, now)
+  const nowPct = ((now - spanStart) / (spanEnd - spanStart)) * 100
 
   return (
     <div className="tl-row tl-pool">
@@ -39,37 +40,34 @@ export function PoolRow({ provider, accounts, spanStart, spanEnd, now }: { provi
         <div className="pool-left">
           {Math.round(pool.left)}
           <span>%</span>
+          <small>left across {accounts.length} accounts</small>
         </div>
-        <div className="pool-sub">left across {accounts.length} accounts</div>
-        <span className={`pool-pill ${pace.tone}`}>
-          <i />
-          {pace.text}
-        </span>
+        <span className={`pool-pill ${pace.tone}`}>{pace.text}</span>
         <dl className="pool-stats">
           <div>
             <dt>Your pace</dt>
-            <dd>{Math.round(pool.usualPerDay)}%/day</dd>
+            <dd>{Math.round(pool.usualPerDay)}%/workday</dd>
           </div>
           <div>
-            <dt>Safe pace</dt>
-            <dd>{Math.round(pool.safePerDay)}%/day</dd>
+            <dt>Sustainable</dt>
+            <dd>{Math.round(pool.sustainablePerDay)}%/workday</dd>
           </div>
         </dl>
       </div>
       <div className="tl-track pool-track" ref={ref}>
-        {width > 0 && <PoolChart pool={pool} refill={100 / accounts.length} spanStart={spanStart} spanEnd={spanEnd} width={width} />}
+        {nowPct > 0 && nowPct < 100 && <div className="tl-now tl-now-lane" style={{ left: `${nowPct}%` }} />}
+        {width > 0 && <PoolChart pool={pool} refill={100 / accounts.length} spanStart={spanStart} spanEnd={spanEnd} width={width} height={height} />}
       </div>
     </div>
   )
 }
 
-const HEIGHT = 180
 const TOP = 22
 const BOTTOM = 8
 
-function PoolChart({ pool, refill, spanStart, spanEnd, width }: { pool: NonNullable<ReturnType<typeof poolOf>>; refill: number; spanStart: number; spanEnd: number; width: number }) {
+function PoolChart({ pool, refill, spanStart, spanEnd, width, height }: { pool: Pool; refill: number; spanStart: number; spanEnd: number; width: number; height: number }) {
   const x = (t: number) => ((t - spanStart) / (spanEnd - spanStart)) * width
-  const y = (v: number) => TOP + (1 - v / 100) * (HEIGHT - TOP - BOTTOM)
+  const y = (v: number) => TOP + (1 - v / 100) * (height - TOP - BOTTOM)
   const points = (p: PoolPoint[]) => p.map((q) => `${x(q.t)},${y(q.pool)}`).join(' ')
   const area = (p: PoolPoint[]) => `${x(p[0].t)},${y(0)} ${points(p)} ${x(p[p.length - 1].t)},${y(0)}`
   const safeAt = (t: number) => (pool.safe.find((p) => p.t >= t) ?? pool.safe[pool.safe.length - 1]).pool
@@ -82,19 +80,14 @@ function PoolChart({ pool, refill, spanStart, spanEnd, width }: { pool: NonNulla
   const peakAfter = (t: number) => Math.max(...line.filter((p) => p.t >= t && p.t - t <= 2 * 3600e3).map((p) => p.pool), 0)
 
   return (
-    <svg className="pool-chart" width={width} height={HEIGHT} aria-label={`Pool ${Math.round(pool.left)}% left`}>
+    <svg className="pool-chart" width={width} height={height} aria-label={`Pool ${Math.round(pool.left)}% left`}>
       <defs>
         <pattern id="pool-dots" width="3" height="3" patternUnits="userSpaceOnUse">
           <circle cx="1.5" cy="1.5" r="0.75" className="pool-dot" />
         </pattern>
       </defs>
       {[100, 50].map((v) => (
-        <g key={v} className="pool-grid">
-          <line x1={0} x2={width} y1={y(v)} y2={y(v)} />
-          <text x={4} y={y(v) - 3}>
-            {v}%
-          </text>
-        </g>
+        <line key={v} className="pool-grid" x1={0} x2={width} y1={y(v)} y2={y(v)} />
       ))}
       <line className="pool-base" x1={0} x2={width} y1={y(0)} y2={y(0)} />
       <polygon className="pool-area" points={area(pool.past)} />
@@ -117,6 +110,11 @@ function PoolChart({ pool, refill, spanStart, spanEnd, width }: { pool: NonNulla
           </g>
         )
       })}
+      {[100, 50].map((v) => (
+        <text key={v} className="pool-grid" x={4} y={y(v) - 3}>
+          {v}%
+        </text>
+      ))}
       <circle className="pool-now" cx={x(pool.past[pool.past.length - 1].t)} cy={y(pool.left)} r={4} />
     </svg>
   )
