@@ -103,6 +103,7 @@ export async function indexOnce(db: HistoryDb, root: string): Promise<IndexStats
   const indexText = db.prepare('insert into runs_fts(rowid, prompt, outcome) values (?, ?, ?)')
   const setEmbedding = db.prepare('update runs set embedding = ? where rowid = ?')
 
+  const passage = (prompt: string, outcome: string) => `${prompt.slice(0, PROMPT_CHARS)}\n\n${outcome.slice(0, OUTCOME_CHARS)}`.trim()
   let pending: { rowid: number; text: string }[] = []
   const flush = async () => {
     if (!pending.length) return
@@ -110,6 +111,16 @@ export async function indexOnce(db: HistoryDb, root: string): Promise<IndexStats
     db.transaction(() => pending.forEach((p, i) => setEmbedding.run(new Uint8Array(vectors[i].buffer), p.rowid)))()
     stats.embedded += pending.length
     pending = []
+  }
+
+  const unembedded = db
+    .query<{ rowid: number; prompt: string; outcome: string }, []>(
+      "select rowid, prompt, outcome from runs where embedding is null and (trim(prompt) != '' or trim(outcome) != '')",
+    )
+    .all()
+  for (const row of unembedded) {
+    pending.push({ rowid: row.rowid, text: passage(row.prompt, row.outcome) })
+    if (pending.length >= EMBED_BATCH) await flush()
   }
 
   for await (const run of quenchRuns(dirs)) {
@@ -123,26 +134,30 @@ export async function indexOnce(db: HistoryDb, root: string): Promise<IndexStats
     const outcome = redact(run.outcome ?? '', stats.redactions)
     const { path: _path, ...rest } = run
     const record = redactDeep({ ...rest, prompt: null, steering: [], outcome: null }, stats.redactions)
-    const { rowid } = insert.get(
-      run.id,
-      run.machine,
-      run.harness,
-      run.session,
-      run.parentSession ?? run.session,
-      record.cwd,
-      repoOf(run.cwd, run.prLinks),
-      record.branch,
-      run.startedAt,
-      run.endedAt,
-      prompt,
-      outcome,
-      promptKey(prompt),
-      JSON.stringify(record),
-    ) as { rowid: number }
+    const hasText = Boolean(prompt.trim() || outcome.trim())
+    const rowid = db.transaction(() => {
+      const { rowid } = insert.get(
+        run.id,
+        run.machine,
+        run.harness,
+        run.session,
+        run.parentSession ?? run.session,
+        record.cwd,
+        repoOf(run.cwd, run.prLinks),
+        record.branch,
+        run.startedAt,
+        run.endedAt,
+        prompt,
+        outcome,
+        promptKey(prompt),
+        JSON.stringify(record),
+      ) as { rowid: number }
+      if (hasText) indexText.run(rowid, prompt, outcome)
+      return rowid
+    })()
     stats.added++
-    if (!prompt.trim() && !outcome.trim()) continue
-    indexText.run(rowid, prompt, outcome)
-    pending.push({ rowid, text: `${prompt.slice(0, PROMPT_CHARS)}\n\n${outcome.slice(0, OUTCOME_CHARS)}`.trim() })
+    if (!hasText) continue
+    pending.push({ rowid, text: passage(prompt, outcome) })
     if (pending.length >= EMBED_BATCH) await flush()
   }
   await flush()

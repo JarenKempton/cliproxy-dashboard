@@ -9,9 +9,17 @@ const SECRETS: [RegExp, string][] = [
   [/(?<![\w-])AKIA[0-9A-Z]{16}/g, '[REDACTED:aws-key]'],
   [/(?<![\w-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[REDACTED:jwt]'],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED:private-key]'],
-  [/^([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH)[A-Z0-9_]*\s*[=:]\s*)\S+/gim, '$1[REDACTED:env]'],
   [/(bearer\s+)[A-Za-z0-9._-]{20,}/gi, '$1[REDACTED:bearer]'],
 ]
+
+// `NAME=value`, `NAME: value` and `"name": "value"` where the name's last word says it holds a secret.
+const ASSIGNMENT = /(["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)(["']?)([^\s"'`,;)}\]]{6,})/g
+const SECRET_WORDS = new Set(['key', 'apikey', 'token', 'secret', 'password', 'passwd', 'pwd', 'pass', 'auth', 'credential', 'credentials'])
+
+function secretName(name: string) {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/)
+  return SECRET_WORDS.has(words.at(-1) ?? '')
+}
 
 export type RedactionCounts = Record<string, number>
 
@@ -23,7 +31,11 @@ export function redact(text: string, counts: RedactionCounts): string {
       return replacement.replace('$1', match[1] ?? '')
     })
   }
-  return text
+  return text.replace(ASSIGNMENT, (match, quote, name, separator, valueQuote, value: string) => {
+    if (!secretName(name) || value.startsWith('[REDACTED') || value.startsWith('$')) return match
+    counts.env = (counts.env ?? 0) + 1
+    return `${quote}${name}${quote}${separator}${valueQuote}[REDACTED:env]`
+  })
 }
 
 // Every string anywhere inside a JSON value.

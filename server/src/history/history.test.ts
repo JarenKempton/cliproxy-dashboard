@@ -74,6 +74,18 @@ describe('redaction', () => {
     expect(counts).toEqual({ 'api-key': 1, 'github-token': 1, env: 1, bearer: 1 })
   })
 
+  test('removes values assigned to secret-named variables in shell, env, JSON and YAML', () => {
+    const counts = {}
+    const text = redact(
+      'export TYPESAFE_API_KEY=abc123def456\nPASSWORD=hunter22\n{"apiKey": "abcdef123456", "type": "message"}\nsecret-key: s3cr3tvalue\nmonkey: banana12 and TOKEN=$GITHUB_TOKEN',
+      counts,
+    )
+    expect(text).toBe(
+      'export TYPESAFE_API_KEY=[REDACTED:env]\nPASSWORD=[REDACTED:env]\n{"apiKey": "[REDACTED:env]", "type": "message"}\nsecret-key: [REDACTED:env]\nmonkey: banana12 and TOKEN=$GITHUB_TOKEN',
+    )
+    expect(counts).toEqual({ env: 4 })
+  })
+
   test('leaves words that merely contain a token prefix', () => {
     const counts = {}
     const text = '/home/me/.t3/worktrees/repo/task-mcp-native-approval-clients and disk-usage-report-for-every-volume'

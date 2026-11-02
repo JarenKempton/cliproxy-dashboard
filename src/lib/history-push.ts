@@ -2,18 +2,20 @@
 // agents anywhere can search what was tried on other machines.
 //
 // Installed by the connect and import scripts as a systemd user timer (Linux)
-// or a launchd agent (macOS). The dashboard address and proxy key go to
-// ~/.config/cliproxy/history.json (mode 600); the bytes the dashboard has
+// or a launchd agent (macOS). The dashboard address, proxy key and any custom
+// harness homes go to ~/.config/cliproxy/history.json (mode 600), whose path
+// the scheduler passes to the script; the bytes the dashboard has
 // acknowledged go to ~/.local/state/cliproxy/history-offsets.json. Only new
 // bytes are sent, and re-sending changes nothing on the dashboard.
 
 const PUSH_PY = `import base64, json, os, sys, tempfile, urllib.error, urllib.request
 
 home = os.path.expanduser("~")
-config_dir = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "cliproxy")
+config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "cliproxy", "history.json")
+config = json.load(open(config_path))
+os.environ.update(config.get("env", {}))
 state_dir = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(home, ".local", "state"), "cliproxy")
 state_path = os.path.join(state_dir, "history-offsets.json")
-config = json.load(open(os.path.join(config_dir, "history.json")))
 try:
     state = json.load(open(state_path))
 except (OSError, ValueError):
@@ -91,7 +93,7 @@ export const INSTALL_HISTORY_PUSH = `install_history_push() {
   cfg="\${XDG_CONFIG_HOME:-$HOME/.config}/cliproxy"
   share="$HOME/.local/share/cliproxy"
   mkdir -p "$cfg" "$share"
-  (umask 077; python3 -c 'import json, os; print(json.dumps({"url": os.environ["CLIPROXY_DASHBOARD"], "key": os.environ["CLIPROXY_KEY"]}))' > "$cfg/history.json")
+  (umask 077; python3 -c 'import json, os; print(json.dumps({"url": os.environ["CLIPROXY_DASHBOARD"], "key": os.environ["CLIPROXY_KEY"], "env": {k: os.environ[k] for k in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR", "XDG_STATE_HOME") if os.environ.get(k)}}))' > "$cfg/history.json")
   cat > "$share/history-push.py" <<'CLIPROXY_PUSH'
 ${PUSH_PY}
 CLIPROXY_PUSH
@@ -104,7 +106,7 @@ CLIPROXY_PUSH
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${LABEL}</string>
-  <key>ProgramArguments</key><array><string>$py</string><string>$share/history-push.py</string></array>
+  <key>ProgramArguments</key><array><string>$py</string><string>$share/history-push.py</string><string>$cfg/history.json</string></array>
   <key>StartInterval</key><integer>60</integer>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>$HOME/Library/Logs/cliproxy-history-push.log</string>
@@ -116,13 +118,13 @@ CLIPROXY_PLIST
   elif systemctl --user show-environment >/dev/null 2>&1; then
     units="\${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     mkdir -p "$units"
-    printf '[Unit]\\nDescription=Send transcripts to the CLIProxy dashboard\\n\\n[Service]\\nType=oneshot\\nExecStart=%s %s\\n' "$py" "$share/history-push.py" > "$units/${UNIT}.service"
+    printf '[Unit]\\nDescription=Send transcripts to the CLIProxy dashboard\\n\\n[Service]\\nType=oneshot\\nExecStart=%s %s %s\\n' "$py" "$share/history-push.py" "$cfg/history.json" > "$units/${UNIT}.service"
     printf '[Unit]\\nDescription=Send transcripts to the CLIProxy dashboard every minute\\n\\n[Timer]\\nOnActiveSec=10s\\nOnUnitActiveSec=60s\\n\\n[Install]\\nWantedBy=timers.target\\n' > "$units/${UNIT}.timer"
     systemctl --user daemon-reload
     systemctl --user enable --now ${UNIT}.timer >/dev/null
     loginctl enable-linger "$(id -un)" 2>/dev/null || echo "Couldn't keep the history timer running after logout (loginctl enable-linger)." >&2
   else
-    echo "History sharing skipped: no systemd user session or launchd here. Run $py $share/history-push.py on a schedule." >&2
+    echo "History sharing skipped: no systemd user session or launchd here. Run $py $share/history-push.py $cfg/history.json on a schedule." >&2
     return 0
   fi
   echo "✓ History → $CLIPROXY_DASHBOARD every minute"
