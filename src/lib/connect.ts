@@ -11,6 +11,8 @@
 // - No dependencies: macOS runs the merge with the built-in JavaScript for
 //   Automation (osascript); other systems use python3.
 
+import { INSTALL_HISTORY_PUSH, UNDO_HISTORY_PUSH } from './history-push'
+
 export type Tool = 'claude' | 'codex' | 'muse'
 
 const CLAUDE_FILE = '"$HOME/.claude/settings.json"'
@@ -159,6 +161,8 @@ for t in $CLIPROXY_TOOLS; do
       fi;;
   esac
 done
+${INSTALL_HISTORY_PUSH}
+install_history_push || echo "History sharing wasn't set up; connecting still worked." >&2
 echo "Restart any open sessions to pick this up."
 `
 }
@@ -172,6 +176,7 @@ for f in ${CLAUDE_FILE} ${CODEX_FILE} ${MUSE_DIR}/settings.json ${MUSE_DIR}/auth
   elif [ -f "$f.cliproxy-backup.absent" ]; then rm -f "$f" "$f.cliproxy-backup.absent"; echo "removed $f"
   fi
 done
+${UNDO_HISTORY_PUSH}
 `
 }
 
@@ -230,10 +235,12 @@ for tool, root, keep in sources:
 
 // Served at <dashboard>/connect/import: sends this machine's usage history to
 // the dashboard. Over the local network the upload needs a proxy key:
-// `| sh -s -- <key>`.
+// `| sh -s -- <key>`. With a key dedicated to this machine, it also starts
+// sending raw transcripts every minute (see history-push.ts).
 export function importScript(dashboardOrigin: string): string {
   return `#!/bin/sh
 # CLIProxy history import: sends Claude Code and Codex usage (token counts only) to the dashboard.
+# With a proxy key, it also starts sending this machine's transcripts every minute for history search.
 set -e
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 export CLIPROXY_KEY="\${1:-}"
@@ -257,6 +264,12 @@ except urllib.error.URLError as e:
     sys.exit("Couldn't reach the dashboard: %s" % e.reason)
 print("Imported %d requests from %d files as %s (%d already imported, %d skipped as already collected live)." % (res["imported"], len(files), res["machineIp"], res["alreadyImported"], res["afterCutoff"]))
 CLIPROXY_PY
+if [ -n "$CLIPROXY_KEY" ]; then
+CLIPROXY_DASHBOARD="${dashboardOrigin}"
+export CLIPROXY_DASHBOARD
+${INSTALL_HISTORY_PUSH}
+install_history_push
+fi
 `
 }
 

@@ -4,3 +4,5 @@ data
 .backups
 .env*
 .git
+history
+models
