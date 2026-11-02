@@ -98,6 +98,8 @@ export const INSTALL_HISTORY_PUSH = `install_history_push() {
 ${PUSH_PY}
 CLIPROXY_PUSH
   py=$(python3 -c 'import sys; print(sys.executable)')
+  unit_arg() { printf '"%s"' "$(printf %s "$1" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g' -e 's/%/%%/g' -e 's/\\$/$$/g')"; }
+  xml() { printf %s "$1" | sed -e 's/&/\\&amp;/g' -e 's/</\\&lt;/g' -e 's/>/\\&gt;/g'; }
   if [ "$(uname)" = Darwin ]; then
     plist="$HOME/Library/LaunchAgents/${LABEL}.plist"
     mkdir -p "$(dirname "$plist")" "$HOME/Library/Logs"
@@ -106,11 +108,11 @@ CLIPROXY_PUSH
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${LABEL}</string>
-  <key>ProgramArguments</key><array><string>$py</string><string>$share/history-push.py</string><string>$cfg/history.json</string></array>
+  <key>ProgramArguments</key><array><string>$(xml "$py")</string><string>$(xml "$share/history-push.py")</string><string>$(xml "$cfg/history.json")</string></array>
   <key>StartInterval</key><integer>60</integer>
   <key>RunAtLoad</key><true/>
-  <key>StandardOutPath</key><string>$HOME/Library/Logs/cliproxy-history-push.log</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Logs/cliproxy-history-push.log</string>
+  <key>StandardOutPath</key><string>$(xml "$HOME/Library/Logs/cliproxy-history-push.log")</string>
+  <key>StandardErrorPath</key><string>$(xml "$HOME/Library/Logs/cliproxy-history-push.log")</string>
 </dict></plist>
 CLIPROXY_PLIST
     launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -118,7 +120,7 @@ CLIPROXY_PLIST
   elif systemctl --user show-environment >/dev/null 2>&1; then
     units="\${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     mkdir -p "$units"
-    printf '[Unit]\\nDescription=Send transcripts to the CLIProxy dashboard\\n\\n[Service]\\nType=oneshot\\nExecStart=%s %s %s\\n' "$py" "$share/history-push.py" "$cfg/history.json" > "$units/${UNIT}.service"
+    printf '[Unit]\\nDescription=Send transcripts to the CLIProxy dashboard\\n\\n[Service]\\nType=oneshot\\nExecStart=%s %s %s\\n' "$(unit_arg "$py")" "$(unit_arg "$share/history-push.py")" "$(unit_arg "$cfg/history.json")" > "$units/${UNIT}.service"
     printf '[Unit]\\nDescription=Send transcripts to the CLIProxy dashboard every minute\\n\\n[Timer]\\nOnActiveSec=10s\\nOnUnitActiveSec=60s\\n\\n[Install]\\nWantedBy=timers.target\\n' > "$units/${UNIT}.timer"
     systemctl --user daemon-reload
     systemctl --user enable --now ${UNIT}.timer >/dev/null

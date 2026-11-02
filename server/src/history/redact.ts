@@ -12,8 +12,10 @@ const SECRETS: [RegExp, string][] = [
   [/(bearer\s+)[A-Za-z0-9._-]{20,}/gi, '$1[REDACTED:bearer]'],
 ]
 
-// `NAME=value`, `NAME: value` and `"name": "value"` where the name's last word says it holds a secret.
-const ASSIGNMENT = /(["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)(["']?)([^\s"'`,;)}\]]{6,})/g
+// `NAME=value`, `NAME: value` and `"name": "value"` (also JSON-escaped) where the
+// name's last word says it holds a secret. Quoted values are removed whole.
+const ASSIGNMENT = /(\\?["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)(\\?"[^"\n]*?\\?"|\\?'[^'\n]*?\\?'|[^\s"'`,;)}\]\\]+)/g
+const QUOTED = /^(\\?["'])([\s\S]*?)(\\?["'])$/
 const SECRET_WORDS = new Set(['key', 'apikey', 'token', 'secret', 'password', 'passwd', 'pwd', 'pass', 'auth', 'credential', 'credentials'])
 
 function secretName(name: string) {
@@ -31,10 +33,11 @@ export function redact(text: string, counts: RedactionCounts): string {
       return replacement.replace('$1', match[1] ?? '')
     })
   }
-  return text.replace(ASSIGNMENT, (match, quote, name, separator, valueQuote, value: string) => {
-    if (!secretName(name) || value.startsWith('[REDACTED') || value.startsWith('$')) return match
+  return text.replace(ASSIGNMENT, (match, quote, name, separator, value: string) => {
+    const [, open = '', inner = value, close = ''] = value.match(QUOTED) ?? []
+    if (!secretName(name) || !inner || inner.startsWith('[REDACTED') || inner.startsWith('$')) return match
     counts.env = (counts.env ?? 0) + 1
-    return `${quote}${name}${quote}${separator}${valueQuote}[REDACTED:env]`
+    return `${quote}${name}${quote}${separator}${open}[REDACTED:env]${close}`
   })
 }
 

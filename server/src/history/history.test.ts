@@ -86,6 +86,18 @@ describe('redaction', () => {
     expect(counts).toEqual({ env: 4 })
   })
 
+  test('removes short and quoted secret values whole, including JSON-escaped ones', () => {
+    const counts = {}
+    const text = redact(
+      'PASSWORD=abc12\nPASSWORD="correct horse battery staple"\nDB_PASS=\'two words\'\n{\\"apiKey\\": \\"ab cd\\"}',
+      counts,
+    )
+    expect(text).toBe(
+      'PASSWORD=[REDACTED:env]\nPASSWORD="[REDACTED:env]"\nDB_PASS=\'[REDACTED:env]\'\n{\\"apiKey\\": \\"[REDACTED:env]\\"}',
+    )
+    expect(counts).toEqual({ env: 4 })
+  })
+
   test('leaves words that merely contain a token prefix', () => {
     const counts = {}
     const text = '/home/me/.t3/worktrees/repo/task-mcp-native-approval-clients and disk-usage-report-for-every-volume'
