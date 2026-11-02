@@ -74,48 +74,42 @@ describe('redaction', () => {
     expect(counts).toEqual({ 'api-key': 1, 'github-token': 1, env: 1, bearer: 1 })
   })
 
-  test('removes values assigned to secret-named variables in shell, env, JSON and YAML', () => {
-    const counts = {}
-    const text = redact(
-      'export TYPESAFE_API_KEY=abc123def456\nPASSWORD=hunter22\n{"apiKey": "abcdef123456", "type": "message"}\nsecret-key: s3cr3tvalue\nmonkey: banana12 and TOKEN=$GITHUB_TOKEN',
-      counts,
-    )
-    expect(text).toBe(
-      'export TYPESAFE_API_KEY=[REDACTED:env]\nPASSWORD=[REDACTED:env]\n{"apiKey": "[REDACTED:env]", "type": "message"}\nsecret-key: [REDACTED:env]\nmonkey: banana12 and TOKEN=$GITHUB_TOKEN',
-    )
-    expect(counts).toEqual({ env: 4 })
+  test('removes every part of a secret-named value, in every quoting', () => {
+    const cases: [string, string[], string[]][] = [
+      ['export TYPESAFE_API_KEY=abc123def456', ['abc123def456'], ['export TYPESAFE_API_KEY=']],
+      ['PASSWORD=hunter22', ['hunter22'], ['PASSWORD=']],
+      ['{"apiKey": "abcdef123456", "type": "message"}', ['abcdef123456'], ['"apiKey"']],
+      ['secret-key: s3cr3tvalue', ['s3cr3tvalue'], ['secret-key:']],
+      ['password: correct horse battery staple', ['correct', 'horse', 'staple'], ['password:']],
+      ['PASSWORD=abc12', ['abc12'], []],
+      ['PASSWORD="correct horse battery staple"', ['correct', 'horse', 'staple'], []],
+      ["DB_PASS='two words'", ['two', 'words'], []],
+      ['{\\"apiKey\\": \\"ab cd\\"}', ['ab cd'], ['\\"apiKey\\"']],
+      ['{"apiKey": "alpha\\"bravo-charlie"}', ['alpha', 'bravo', 'charlie'], []],
+      ['DB_PASS=alpha\\bravo', ['alpha', 'bravo'], []],
+      ['{\\"authToken\\": \\"ab\\\\\\"cd\\"}', ['ab', 'cd'], []],
+      [JSON.stringify(JSON.stringify({ apiKey: 'alpha\nbravo-charlie' })), ['alpha', 'bravo', 'charlie'], ['apiKey']],
+      [JSON.stringify(JSON.stringify({ apiKey: 'alpha"bravo\\charlie\tdelta' })), ['alpha', 'bravo', 'charlie', 'delta'], []],
+      ["apiKey='alpha\\'bravo-charlie'", ['alpha', 'bravo', 'charlie'], []],
+      [JSON.stringify("apiKey='alpha\\'bravo-charlie'"), ['alpha', 'bravo', 'charlie'], []],
+      ['PASSWORD="sk-abcdefghijklmnopqrstuvwxyz!bravo-charlie"', ['abcdefghij', 'bravo', 'charlie'], []],
+      ['{"apiKey":"$bravo-charlie"}', ['bravo', 'charlie'], []],
+      ['PASSWORD="123456"', ['123456'], []],
+      ['PASSWORD="alpha\nbravo-charlie"', ['alpha', 'bravo', 'charlie'], []],
+      ["PASSWORD='alpha''bravo-charlie'", ['alpha', 'bravo', 'charlie'], []],
+      ["PASSWORD='alpha'' bravo-charlie'", ['alpha', 'bravo', 'charlie'], []],
+      ['PASSWORD=alpha\\ bravo-charlie', ['alpha', 'bravo', 'charlie'], []],
+    ]
+    for (const [input, gone, kept] of cases) {
+      const out = redact(input, {})
+      for (const secret of gone) expect({ input, out, leaked: out.includes(secret) }).toEqual({ input, out, leaked: false })
+      for (const text of kept) expect(out).toContain(text)
+    }
   })
 
-  test('removes short and quoted secret values whole, including JSON-escaped ones', () => {
-    const counts = {}
-    const text = redact(
-      'PASSWORD=abc12\nPASSWORD="correct horse battery staple"\nDB_PASS=\'two words\'\n{\\"apiKey\\": \\"ab cd\\"}',
-      counts,
-    )
-    expect(text).toBe(
-      'PASSWORD=[REDACTED:env]\nPASSWORD="[REDACTED:env]"\nDB_PASS=\'[REDACTED:env]\'\n{\\"apiKey\\": \\"[REDACTED:env]\\"}',
-    )
-    expect(counts).toEqual({ env: 4 })
-  })
-
-  test('removes values with escaped quotes and backslashes to their end', () => {
-    const counts = {}
-    const text = redact('{"apiKey": "alpha\\"bravo-charlie"}\nDB_PASS=alpha\\bravo\n{\\"authToken\\": \\"ab\\\\\\"cd\\"}', counts)
-    expect(text).toBe('{"apiKey": "[REDACTED:env]"}\nDB_PASS=[REDACTED:env]\n{\\"authToken\\": \\"[REDACTED:env]\\"}')
-    expect(counts).toEqual({ env: 3 })
-  })
-
-  test('removes JSON-escaped values with escape sequences and single-quoted values with escaped quotes', () => {
-    const counts = {}
-    expect(redact(JSON.stringify(JSON.stringify({ apiKey: 'alpha\nbravo-charlie' })), counts)).toBe(
-      JSON.stringify(JSON.stringify({ apiKey: '[REDACTED:env]' })),
-    )
-    expect(redact(JSON.stringify(JSON.stringify({ apiKey: 'alpha"bravo\\charlie\tdelta' })), counts)).toBe(
-      JSON.stringify(JSON.stringify({ apiKey: '[REDACTED:env]' })),
-    )
-    expect(redact("apiKey='alpha\\'bravo-charlie'", counts)).toBe("apiKey='[REDACTED:env]'")
-    expect(redact(JSON.stringify("apiKey='alpha\\'bravo-charlie'"), counts)).toBe(JSON.stringify("apiKey='[REDACTED:env]'"))
-    expect(counts).toEqual({ env: 4 })
+  test('keeps whole variable references, which are not secrets', () => {
+    expect(redact('TOKEN=$GITHUB_TOKEN\ngh api', {})).toBe('TOKEN=$GITHUB_TOKEN\ngh api')
+    expect(redact('API_KEY="${OPENAI_API_KEY}"', {})).toBe('API_KEY="${OPENAI_API_KEY}"')
   })
 
   test('never leaks any part of a secret value, at any JSON depth or quoting', () => {
@@ -129,8 +123,13 @@ describe('redaction', () => {
       const value = noise() + marker + noise()
       const json = (depth: number) => Array.from({ length: depth }).reduce<string>((t) => JSON.stringify(t), JSON.stringify({ apiKey: value, type: 'x' }))
       const repr = `{'apiKey': '${escape(value)}'}`
-      const shell = `export DB_PASSWORD="${value.replace(/["\\$`]/g, '\\$&').replace(/\n/g, ' ')}"`
-      for (const text of [json(0), json(1), json(2), json(3), repr, JSON.stringify(repr), shell, JSON.stringify(shell)])
+      const shell = `export DB_PASSWORD="${value.replace(/["\\$`]/g, '\\$&')}"`
+      const glued = `PASSWORD='${value.replace(/'/g, '')}''${value.replace(/'/g, '')}'`
+      const spaced = `PASSWORD=${value.replace(/[\s\\]/g, (c) => '\\' + c)}`
+      const yaml = `password: ${value.replace(/\n/g, ' ')}`
+      const prefixed = `{"apiKey":"$${value.replace(/["\\]/g, '')}"}`
+      const tokenFirst = `PASSWORD="sk-abcdefghijklmnopqrstuvwxyz!${value.replace(/["\\]/g, '')}"`
+      for (const text of [json(0), json(1), json(2), json(3), repr, JSON.stringify(repr), shell, JSON.stringify(shell), glued, spaced, yaml, prefixed, tokenFirst])
         expect(redact(text, {})).not.toContain(marker)
     }
   })
@@ -139,7 +138,7 @@ describe('redaction', () => {
     const counts = {}
     const text = 'issue_key: JWB-913\nidempotency_key=harness-run-1\nAuth: token\npass: 3 of 4\n"projectKey": "JWB"\nrequires_credentials: true'
     expect(redact(text, counts)).toBe(text)
-    expect(redact('"token": "a8f9c2d4e6b1a3c5d7e9"', counts)).toBe('"token": "[REDACTED:env]"')
+    expect(redact('"token": "a8f9c2d4e6b1a3c5d7e9"', counts)).toBe('"token": [REDACTED:env]')
   })
 
   test('leaves words that merely contain a token prefix', () => {

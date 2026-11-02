@@ -15,16 +15,17 @@ const SECRETS: [RegExp, string][] = [
 // `NAME=value`, `NAME: value` and `"name": "value"`, at any JSON-escaping depth.
 const NAME = /(\\*["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)/g
 const OPEN_QUOTE = /(\\*)(["'])/y
-const UNQUOTED = /[^\s"'`,;)}\]]+/y
 const ALWAYS_SECRET = new Set(['password', 'passwd', 'pwd', 'secret', 'apikey', 'authkey'])
 const SECRET_SUFFIX = new Set(['token', 'pass', 'auth', 'credential', 'credentials'])
 const SECRET_KEY_KIND = new Set(['api', 'secret', 'private', 'access', 'client', 'master', 'signing', 'encryption', 'auth', 'license', 'deploy', 'service', 'management'])
 const LOOKS_SECRET = /^(?=.*[A-Za-z])(?=.*\d)\S{16,}$/
-const PLAIN_VALUE = /^(true|false|null|none|undefined|\d+)$/i
+const NOT_A_SECRET = /^(true|false|null|none|undefined|\$\{?[A-Z_][A-Z0-9_]*\}?|\[REDACTED:[a-z-]+\])$/i
 
 // Whether `name = value` assigns a secret: decided by the name's words, and for a
-// bare `token`, `key` or `auth` by whether the value looks like one.
-function secretAssignment(name: string, value: string) {
+// bare `token`, `key` or `auth` by whether the value looks like one. Only a whole
+// value can be a literal or a variable reference.
+function secretAssignment(name: string, value: string, whole: string) {
+  if (NOT_A_SECRET.test(whole.trim().replace(/^\\*["']|\\*["']$/g, ''))) return false
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/)
   const last = words.at(-1) ?? ''
   if (ALWAYS_SECRET.has(last)) return true
@@ -35,6 +36,7 @@ function secretAssignment(name: string, value: string) {
 export type RedactionCounts = Record<string, number>
 
 export function redact(text: string, counts: RedactionCounts): string {
+  text = redactAssignments(text, counts)
   for (const [pattern, replacement] of SECRETS) {
     const kind = replacement.slice(replacement.indexOf(':') + 1, -1)
     text = text.replace(pattern, (...match) => {
@@ -42,22 +44,55 @@ export function redact(text: string, counts: RedactionCounts): string {
       return replacement.replace('$1', match[1] ?? '')
     })
   }
-  return redactAssignments(text, counts)
+  return text
 }
 
-// Where a quoted value ends: at the first same-kind quote with exactly as many
-// backslashes before it as the opening quote. Any other run may be an escaped quote
-// under some enclosing escaping, so it never ends the value; a value that really ends
-// in a backslash runs on to the next such quote or the end of the line instead.
-function quotedValueEnd(text: string, from: number, depth: number, quote: string) {
-  const lineEnd = text.indexOf('\n', from) === -1 ? text.length : text.indexOf('\n', from)
-  for (let i = from; i < lineEnd; i++) {
+// Just past the closing quote: the first same-kind quote with exactly as many
+// backslashes before it as the opening one, across lines. Any other run may be an
+// escaped quote under some enclosing escaping. Without one, the rest of the text.
+function quotedEnd(text: string, from: number, depth: number, quote: string) {
+  for (let i = from; i < text.length; i++) {
     if (text[i] !== quote) continue
     let run = 0
     while (i - run - 1 >= from && text[i - run - 1] === '\\') run++
-    if (run === depth) return { innerEnd: i - depth, end: i + 1 }
+    if (run === depth) return i + 1
   }
-  return { innerEnd: lineEnd, end: lineEnd }
+  return text.length
+}
+
+// A secret value runs to the end of its logical line: quoted segments (which may span
+// lines) and backslash-escaped characters, including escaped newlines, carry it on.
+// The first quoted segment, or the first word, decides whether it is a secret.
+function valueExtent(text: string, start: number) {
+  let decide: string | null = null
+  let i = start
+  while (i < text.length && text[i] !== '\n') {
+    OPEN_QUOTE.lastIndex = i
+    const open = OPEN_QUOTE.exec(text)
+    if (open) {
+      const end = quotedEnd(text, i + open[0].length, open[1].length, open[2])
+      if (i === start) decide = text.slice(i + open[0].length, Math.max(i + open[0].length, end - open[0].length))
+      i = end
+    } else i += text[i] === '\\' ? 2 : 1
+  }
+  return { decide: decide ?? text.slice(start).match(/^\S*/)![0], end: Math.min(i, text.length) }
+}
+
+// Where the same value ends under shell rules, where a backslash inside single quotes
+// is literal. Escaping can't be told apart from text, so the longer reading wins.
+function shellEnd(text: string, start: number) {
+  let i = start
+  while (i < text.length && text[i] !== '\n') {
+    if (text[i] === "'") {
+      const close = text.indexOf("'", i + 1)
+      i = close === -1 ? text.length : close + 1
+    } else if (text[i] === '"') {
+      i++
+      while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1
+      i++
+    } else i += text[i] === '\\' ? 2 : 1
+  }
+  return Math.min(i, text.length)
 }
 
 function redactAssignments(text: string, counts: RedactionCounts) {
@@ -65,23 +100,16 @@ function redactAssignments(text: string, counts: RedactionCounts) {
   let copied = 0
   NAME.lastIndex = 0
   for (let m = NAME.exec(text); m; m = NAME.exec(text)) {
-    const valueStart = m.index + m[0].length
-    OPEN_QUOTE.lastIndex = UNQUOTED.lastIndex = valueStart
-    const open = OPEN_QUOTE.exec(text)
-    let innerStart = valueStart
-    let innerEnd: number
-    let end: number
-    if (open) {
-      innerStart = valueStart + open[0].length
-      ;({ innerEnd, end } = quotedValueEnd(text, innerStart, open[1].length, open[2]))
-    } else if (UNQUOTED.exec(text)) {
-      innerEnd = end = UNQUOTED.lastIndex
-    } else continue
-    const inner = text.slice(innerStart, innerEnd)
-    if (!inner || inner.startsWith('[REDACTED') || inner.startsWith('$') || PLAIN_VALUE.test(inner) || !secretAssignment(m[2], inner)) continue
+    const start = m.index + m[0].length
+    if (start >= text.length || text[start] === '\n') continue
+    const extent = valueExtent(text, start)
+    const decide = extent.decide
+    const end = Math.max(extent.end, shellEnd(text, start))
+    const whole = text.slice(start, end)
+    if (!whole.trim() || !secretAssignment(m[2], decide || whole, whole)) continue
     counts.env = (counts.env ?? 0) + 1
-    out += `${text.slice(copied, innerStart)}[REDACTED:env]`
-    copied = innerEnd
+    out += `${text.slice(copied, start)}[REDACTED:env]`
+    copied = end
     NAME.lastIndex = end
   }
   return out + text.slice(copied)
