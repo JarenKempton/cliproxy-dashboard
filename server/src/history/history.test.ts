@@ -105,6 +105,33 @@ describe('redaction', () => {
     expect(counts).toEqual({ env: 3 })
   })
 
+  test('removes JSON-escaped values with escape sequences and single-quoted values with escaped quotes', () => {
+    const counts = {}
+    expect(redact(JSON.stringify(JSON.stringify({ apiKey: 'alpha\nbravo-charlie' })), counts)).toBe(
+      JSON.stringify(JSON.stringify({ apiKey: '[REDACTED:env]' })),
+    )
+    expect(redact(JSON.stringify(JSON.stringify({ apiKey: 'alpha"bravo\\charlie\tdelta' })), counts)).toBe(
+      JSON.stringify(JSON.stringify({ apiKey: '[REDACTED:env]' })),
+    )
+    expect(redact("apiKey='alpha\\'bravo-charlie'", counts)).toBe("apiKey='[REDACTED:env]'")
+    expect(counts).toEqual({ env: 3 })
+  })
+
+  test('never leaks any part of a secret value, at any JSON depth or quoting', () => {
+    let seed = 7
+    const random = () => (seed = (seed * 48271) % 2147483647) / 2147483647
+    const alphabet = 'abcXYZ019"\'\\\n\t -_:=,;{}'
+    const escape = (v: string) => v.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\t/g, '\\t')
+    for (let i = 0; i < 2000; i++) {
+      const noise = () => Array.from({ length: 1 + Math.floor(random() * 12) }, () => alphabet[Math.floor(random() * alphabet.length)]).join('')
+      const marker = `Mark${i}er`
+      const value = noise() + marker + noise()
+      const json = (depth: number) => Array.from({ length: depth }).reduce<string>((t) => JSON.stringify(t), JSON.stringify({ apiKey: value, type: 'x' }))
+      for (const text of [json(0), json(1), json(2), json(3), `{'apiKey': '${escape(value)}'}`, `export DB_PASSWORD="${value.replace(/["\\$`]/g, '\\$&').replace(/\n/g, ' ')}"`])
+        expect(redact(text, {})).not.toContain(marker)
+    }
+  })
+
   test('leaves ordinary keys and prose alone', () => {
     const counts = {}
     const text = 'issue_key: JWB-913\nidempotency_key=harness-run-1\nAuth: token\npass: 3 of 4\n"projectKey": "JWB"\nrequires_credentials: true'
