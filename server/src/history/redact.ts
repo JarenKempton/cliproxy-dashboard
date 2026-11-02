@@ -45,16 +45,17 @@ export function redact(text: string, counts: RedactionCounts): string {
   return redactAssignments(text, counts)
 }
 
-// Where a quoted value ends. Its opening quote has `depth` backslashes (0, 1, 3, 7… as
-// JSON escaping nests); a closing quote has the same count plus an even number of
-// escaped backslashes at that depth. Without one, the value runs to the end of the line.
+// Where a quoted value ends: at the first same-kind quote with exactly as many
+// backslashes before it as the opening quote. Any other run may be an escaped quote
+// under some enclosing escaping, so it never ends the value; a value that really ends
+// in a backslash runs on to the next such quote or the end of the line instead.
 function quotedValueEnd(text: string, from: number, depth: number, quote: string) {
   const lineEnd = text.indexOf('\n', from) === -1 ? text.length : text.indexOf('\n', from)
   for (let i = from; i < lineEnd; i++) {
     if (text[i] !== quote) continue
     let run = 0
     while (i - run - 1 >= from && text[i - run - 1] === '\\') run++
-    if (run >= depth && (run - depth) % (2 * (depth + 1)) === 0) return { innerEnd: i - depth, end: i + 1 }
+    if (run === depth) return { innerEnd: i - depth, end: i + 1 }
   }
   return { innerEnd: lineEnd, end: lineEnd }
 }

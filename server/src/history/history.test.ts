@@ -114,7 +114,8 @@ describe('redaction', () => {
       JSON.stringify(JSON.stringify({ apiKey: '[REDACTED:env]' })),
     )
     expect(redact("apiKey='alpha\\'bravo-charlie'", counts)).toBe("apiKey='[REDACTED:env]'")
-    expect(counts).toEqual({ env: 3 })
+    expect(redact(JSON.stringify("apiKey='alpha\\'bravo-charlie'"), counts)).toBe(JSON.stringify("apiKey='[REDACTED:env]'"))
+    expect(counts).toEqual({ env: 4 })
   })
 
   test('never leaks any part of a secret value, at any JSON depth or quoting', () => {
@@ -127,7 +128,9 @@ describe('redaction', () => {
       const marker = `Mark${i}er`
       const value = noise() + marker + noise()
       const json = (depth: number) => Array.from({ length: depth }).reduce<string>((t) => JSON.stringify(t), JSON.stringify({ apiKey: value, type: 'x' }))
-      for (const text of [json(0), json(1), json(2), json(3), `{'apiKey': '${escape(value)}'}`, `export DB_PASSWORD="${value.replace(/["\\$`]/g, '\\$&').replace(/\n/g, ' ')}"`])
+      const repr = `{'apiKey': '${escape(value)}'}`
+      const shell = `export DB_PASSWORD="${value.replace(/["\\$`]/g, '\\$&').replace(/\n/g, ' ')}"`
+      for (const text of [json(0), json(1), json(2), json(3), repr, JSON.stringify(repr), shell, JSON.stringify(shell)])
         expect(redact(text, {})).not.toContain(marker)
     }
   })
