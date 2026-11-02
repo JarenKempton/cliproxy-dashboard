@@ -73,6 +73,13 @@ describe('redaction', () => {
     )
     expect(counts).toEqual({ 'api-key': 1, 'github-token': 1, env: 1, bearer: 1 })
   })
+
+  test('leaves words that merely contain a token prefix', () => {
+    const counts = {}
+    const text = '/home/me/.t3/worktrees/repo/task-mcp-native-approval-clients and disk-usage-report-for-every-volume'
+    expect(redact(text, counts)).toBe(text)
+    expect(counts).toEqual({})
+  })
 })
 
 describe('search', () => {

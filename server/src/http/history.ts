@@ -29,7 +29,9 @@ export function historyPushApp(db: Db, keys: ProxyKeys, root = historyEnv.dir) {
     if (failures.length >= MAX_FAILURES_PER_MINUTE) return c.json({ error: 'too many attempts' }, 429)
 
     const key = c.req.header('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
-    if (!key || !(await keys.has(key))) {
+    const known = key ? await keys.has(key).catch(() => null) : false
+    if (known === null) return c.json({ error: "can't reach the proxy to check the key" }, 503)
+    if (!known) {
       failures.push(now)
       return c.json({ error: 'a proxy API key is required' }, 401)
     }

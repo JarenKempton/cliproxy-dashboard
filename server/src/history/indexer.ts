@@ -13,7 +13,7 @@ import { embedPassages, EMBEDDING_MODEL } from './embed'
 import { historyEnv } from './env'
 import { redact, redactDeep, type RedactionCounts } from './redact'
 
-const EMBED_BATCH = 32
+const EMBED_BATCH = 8
 const PROMPT_CHARS = 1200
 const OUTCOME_CHARS = 800
 
