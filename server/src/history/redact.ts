@@ -12,15 +12,24 @@ const SECRETS: [RegExp, string][] = [
   [/(bearer\s+)[A-Za-z0-9._-]{20,}/gi, '$1[REDACTED:bearer]'],
 ]
 
-// `NAME=value`, `NAME: value` and `"name": "value"` (also JSON-escaped) where the
-// name's last word says it holds a secret. Quoted values are removed whole.
-const ASSIGNMENT = /(\\?["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)(\\?"[^"\n]*?\\?"|\\?'[^'\n]*?\\?'|[^\s"'`,;)}\]\\]+)/g
-const QUOTED = /^(\\?["'])([\s\S]*?)(\\?["'])$/
-const SECRET_WORDS = new Set(['key', 'apikey', 'token', 'secret', 'password', 'passwd', 'pwd', 'pass', 'auth', 'credential', 'credentials'])
+// `NAME=value`, `NAME: value` and `"name": "value"` (also JSON-escaped). Quoted
+// values are removed whole.
+const ASSIGNMENT =
+  /(\\?["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)(\\"(?:[^\\\n]|\\\\\\\\|\\\\\\"|\\[^"\\])*\\"|"(?:\\.|[^"\\\n])*"|'[^'\n]*'|[^\s"'`,;)}\]]+)/g
+const ALWAYS_SECRET = new Set(['password', 'passwd', 'pwd', 'secret', 'apikey', 'authkey'])
+const SECRET_SUFFIX = new Set(['token', 'pass', 'auth', 'credential', 'credentials'])
+const SECRET_KEY_KIND = new Set(['api', 'secret', 'private', 'access', 'client', 'master', 'signing', 'encryption', 'auth', 'license', 'deploy', 'service', 'management'])
+const LOOKS_SECRET = /^(?=.*[A-Za-z])(?=.*\d)\S{16,}$/
+const PLAIN_VALUE = /^(true|false|null|none|undefined|\d+)$/i
 
-function secretName(name: string) {
+// Whether `name = value` assigns a secret: decided by the name's words, and for a
+// bare `token`, `key` or `auth` by whether the value looks like one.
+function secretAssignment(name: string, value: string) {
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/)
-  return SECRET_WORDS.has(words.at(-1) ?? '')
+  const last = words.at(-1) ?? ''
+  if (ALWAYS_SECRET.has(last)) return true
+  if (words.length === 1) return (SECRET_SUFFIX.has(last) || last === 'key') && LOOKS_SECRET.test(value)
+  return SECRET_SUFFIX.has(last) || (last === 'key' && SECRET_KEY_KIND.has(words.at(-2) ?? ''))
 }
 
 export type RedactionCounts = Record<string, number>
@@ -33,11 +42,12 @@ export function redact(text: string, counts: RedactionCounts): string {
       return replacement.replace('$1', match[1] ?? '')
     })
   }
-  return text.replace(ASSIGNMENT, (match, quote, name, separator, value: string) => {
-    const [, open = '', inner = value, close = ''] = value.match(QUOTED) ?? []
-    if (!secretName(name) || !inner || inner.startsWith('[REDACTED') || inner.startsWith('$')) return match
+  return text.replace(ASSIGNMENT, (match, nameQuote, name, separator, value: string) => {
+    const quote = value.startsWith('\\"') ? '\\"' : /^["']/.test(value) ? value[0] : ''
+    const inner = value.slice(quote.length, value.length - quote.length)
+    if (!inner || inner.startsWith('[REDACTED') || inner.startsWith('$') || PLAIN_VALUE.test(inner) || !secretAssignment(name, inner)) return match
     counts.env = (counts.env ?? 0) + 1
-    return `${quote}${name}${quote}${separator}${open}[REDACTED:env]${close}`
+    return `${nameQuote}${name}${nameQuote}${separator}${quote}[REDACTED:env]${quote}`
   })
 }
 

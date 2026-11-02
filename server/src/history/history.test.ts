@@ -98,6 +98,20 @@ describe('redaction', () => {
     expect(counts).toEqual({ env: 4 })
   })
 
+  test('removes values with escaped quotes and backslashes to their end', () => {
+    const counts = {}
+    const text = redact('{"apiKey": "alpha\\"bravo-charlie"}\nDB_PASS=alpha\\bravo\n{\\"authToken\\": \\"ab\\\\\\"cd\\"}', counts)
+    expect(text).toBe('{"apiKey": "[REDACTED:env]"}\nDB_PASS=[REDACTED:env]\n{\\"authToken\\": \\"[REDACTED:env]\\"}')
+    expect(counts).toEqual({ env: 3 })
+  })
+
+  test('leaves ordinary keys and prose alone', () => {
+    const counts = {}
+    const text = 'issue_key: JWB-913\nidempotency_key=harness-run-1\nAuth: token\npass: 3 of 4\n"projectKey": "JWB"\nrequires_credentials: true'
+    expect(redact(text, counts)).toBe(text)
+    expect(redact('"token": "a8f9c2d4e6b1a3c5d7e9"', counts)).toBe('"token": "[REDACTED:env]"')
+  })
+
   test('leaves words that merely contain a token prefix', () => {
     const counts = {}
     const text = '/home/me/.t3/worktrees/repo/task-mcp-native-approval-clients and disk-usage-report-for-every-volume'
