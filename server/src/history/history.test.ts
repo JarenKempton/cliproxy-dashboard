@@ -99,6 +99,13 @@ describe('redaction', () => {
       ["PASSWORD='alpha''bravo-charlie'", ['alpha', 'bravo', 'charlie'], []],
       ["PASSWORD='alpha'' bravo-charlie'", ['alpha', 'bravo', 'charlie'], []],
       ['PASSWORD=alpha\\ bravo-charlie', ['alpha', 'bravo', 'charlie'], []],
+      [JSON.stringify('before\npassword=hunter22'), ['hunter22'], ['before']],
+      [JSON.stringify(JSON.stringify('before\tpassword=hunter22')), ['hunter22'], ['before']],
+      ['password: $hunter2', ['hunter2'], []],
+      ['password: ${ALPHA', ['ALPHA'], []],
+      ['password: |\n  correct-horse-battery-staple\nname: kept', ['correct', 'staple'], ['name: kept']],
+      ['  password: >\n    folded-alpha\n\n    folded-bravo\n  user: kept', ['alpha', 'bravo'], ['user: kept']],
+      ['password: first-part\n  second-part', ['first', 'second'], []],
     ]
     for (const [input, gone, kept] of cases) {
       const out = redact(input, {})
@@ -129,7 +136,10 @@ describe('redaction', () => {
       const yaml = `password: ${value.replace(/\n/g, ' ')}`
       const prefixed = `{"apiKey":"$${value.replace(/["\\]/g, '')}"}`
       const tokenFirst = `PASSWORD="sk-abcdefghijklmnopqrstuvwxyz!${value.replace(/["\\]/g, '')}"`
-      for (const text of [json(0), json(1), json(2), json(3), repr, JSON.stringify(repr), shell, JSON.stringify(shell), glued, spaced, yaml, prefixed, tokenFirst])
+      const escapedName = JSON.stringify(`before\npassword=${value.replace(/\s/g, '_')}`)
+      const yamlBlock = `password: |\n${value.split('\n').map((l) => `  ${l}`).join('\n')}\nname: kept`
+      const lowerRef = `password: $${value.replace(/\s/g, '_')}`
+      for (const text of [json(0), json(1), json(2), json(3), repr, JSON.stringify(repr), shell, JSON.stringify(shell), glued, spaced, yaml, prefixed, tokenFirst, escapedName, JSON.stringify(escapedName), yamlBlock, lowerRef])
         expect(redact(text, {})).not.toContain(marker)
     }
   })

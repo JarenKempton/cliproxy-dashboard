@@ -12,20 +12,23 @@ const SECRETS: [RegExp, string][] = [
   [/(bearer\s+)[A-Za-z0-9._-]{20,}/gi, '$1[REDACTED:bearer]'],
 ]
 
-// `NAME=value`, `NAME: value` and `"name": "value"`, at any JSON-escaping depth.
-const NAME = /(\\*["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)/g
+// `NAME=value`, `NAME: value` and `"name": "value"`, at any JSON-escaping depth. A name
+// starts after a non-name character or after an escaped `\n`, `\t` or `\r`.
+const NAME = /(?:(?<=\\[ntr])|(?<![\w.\\-]))(\\*["']?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)/g
 const OPEN_QUOTE = /(\\*)(["'])/y
 const ALWAYS_SECRET = new Set(['password', 'passwd', 'pwd', 'secret', 'apikey', 'authkey'])
 const SECRET_SUFFIX = new Set(['token', 'pass', 'auth', 'credential', 'credentials'])
 const SECRET_KEY_KIND = new Set(['api', 'secret', 'private', 'access', 'client', 'master', 'signing', 'encryption', 'auth', 'license', 'deploy', 'service', 'management'])
 const LOOKS_SECRET = /^(?=.*[A-Za-z])(?=.*\d)\S{16,}$/
-const NOT_A_SECRET = /^(true|false|null|none|undefined|\$\{?[A-Z_][A-Z0-9_]*\}?|\[REDACTED:[a-z-]+\])$/i
+const LITERAL = /^(true|false|null|none|undefined)$/i
+const REFERENCE = /^(\$[A-Z_][A-Z0-9_]*|\$\{[A-Z_][A-Z0-9_]*\}|\[REDACTED:[a-z-]+\])$/
 
 // Whether `name = value` assigns a secret: decided by the name's words, and for a
 // bare `token`, `key` or `auth` by whether the value looks like one. Only a whole
 // value can be a literal or a variable reference.
 function secretAssignment(name: string, value: string, whole: string) {
-  if (NOT_A_SECRET.test(whole.trim().replace(/^\\*["']|\\*["']$/g, ''))) return false
+  const bare = whole.trim().replace(/^\\*["']|\\*["']$/g, '')
+  if (LITERAL.test(bare) || REFERENCE.test(bare)) return false
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/)
   const last = words.at(-1) ?? ''
   if (ALWAYS_SECRET.has(last)) return true
@@ -95,6 +98,20 @@ function shellEnd(text: string, start: number) {
   return Math.min(i, text.length)
 }
 
+// A value goes on over following lines that are blank or indented deeper than the
+// line its name is on, as YAML block, folded and plain multi-line scalars do.
+function continuationEnd(text: string, nameAt: number, end: number) {
+  const lineStart = text.lastIndexOf('\n', nameAt - 1) + 1
+  const indent = text.slice(lineStart).match(/^[ \t]*/)![0].length
+  while (end < text.length) {
+    const next = text.indexOf('\n', end + 1)
+    const line = text.slice(end + 1, next === -1 ? text.length : next)
+    if (line.trim() && line.match(/^[ \t]*/)![0].length <= indent) break
+    end = next === -1 ? text.length : next
+  }
+  return end
+}
+
 function redactAssignments(text: string, counts: RedactionCounts) {
   let out = ''
   let copied = 0
@@ -104,7 +121,7 @@ function redactAssignments(text: string, counts: RedactionCounts) {
     if (start >= text.length || text[start] === '\n') continue
     const extent = valueExtent(text, start)
     const decide = extent.decide
-    const end = Math.max(extent.end, shellEnd(text, start))
+    const end = continuationEnd(text, m.index, Math.max(extent.end, shellEnd(text, start)))
     const whole = text.slice(start, end)
     if (!whole.trim() || !secretAssignment(m[2], decide || whole, whole)) continue
     counts.env = (counts.env ?? 0) + 1
