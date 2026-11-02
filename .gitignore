@@ -28,3 +28,7 @@ dist-ssr
 
 # usage database and price cache
 data/
+
+# history search: raw transcripts and the local embedding model
+/history/
+/models/

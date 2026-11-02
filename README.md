@@ -13,6 +13,7 @@ A web UI for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)'s manag
 | Accounts | Add Claude and Codex accounts through OAuth, enable, disable, or remove them |
 | API keys | Create, label and revoke client keys; optional one-command setup of Claude Code / Codex on another machine |
 | Config   | Edit `config.yaml` as a form or YAML, review a diff before saving; every save snapshots the previous file |
+| History  | `POST /history/search` across every connected machine's Claude Code, Codex and Pi transcripts (no page; for agents) |
 
 <img width="1440" alt="Usage page: cost by provider over 30 days and a breakdown by model" src="docs/usage.png" />
 
@@ -108,7 +109,8 @@ Host networking keeps the default `127.0.0.1` binding meaningful and lets the co
 - Writes are allowlisted to the dashboard's own actions unless `CPA_ALLOW_WRITES=1`. GETs with side effects (draining `/usage-queue`, provider auth URLs other than Claude and Codex) are blocked.
 - After a single `401` from the proxy, the bridge stops forwarding until restart, because CLIProxyAPI bans an IP for about 30 minutes after 5 failed key attempts.
 - Every config write first snapshots `config.yaml` into `.backups/` (last 50, mode `600`). Those snapshots contain your proxy's secrets; treat the directory accordingly.
-- `LAN_PORT` opens a listener on all interfaces. It serves only the connect scripts, one-time connect codes, and a history import that requires a valid proxy API key. Leave it at `0` unless you need it.
+- `LAN_PORT` opens a listener on all interfaces. It serves only the connect scripts, one-time connect codes, and a history import and transcript push that require a valid proxy API key. Leave it at `0` unless you need it.
+- Connected machines send their full transcripts, which can contain anything a session printed. They are stored as sent under `HISTORY_DIR`; protect it like the backups. Search and session results come only from `history.db`, where common secret formats (API keys, tokens, JWTs, private keys, `*_KEY=`/`*_TOKEN=` lines, bearer headers) are removed before indexing.
 
 ## Limitations
 
@@ -136,6 +138,19 @@ npm run dev           # Vite on 127.0.0.1:5173, proxying to the server
 | `npm run db:generate` | Generate a migration after editing `server/src/db/schema.ts` |
 
 Usage groups by the served model's vendor (OpenAI, Anthropic, …) regardless of client or proxy endpoint, falling back to the upstream provider for opaque model names. A session that uses several providers counts in each provider row and once in the overall total.
+
+### History search
+
+Connecting a machine (or running the import script with a key dedicated to it) also installs a timer (systemd user timer on Linux, launchd on macOS) that sends new transcript bytes every minute to `POST /history/push`. The machine is the one the proxy key is dedicated to. Raw files are stored as sent under `HISTORY_DIR/<machine>/`, laid out like a home folder.
+
+The `indexer` service in `deploy/compose.yaml` runs the same image with `bun server/src/history/indexer.ts`. It reads every machine folder with the pinned [Quench](https://github.com/JarenKempton/quench) (`quench runs --all --json --history …`), removes secrets, and adds closed runs to `history.db` with a full-text index and local CPU embeddings (bge-small-en-v1.5). `history.db` records the Quench version and model; it is rebuilt from `HISTORY_DIR` when either changes or when it is deleted.
+
+```sh
+curl -s https://<dashboard>/history/search -d '{"q": "earlier attempts to make CI faster", "repo": "business-metrics", "limit": 5, "session": "<your session id>"}'
+curl -s https://<dashboard>/history/sessions/<session id>
+```
+
+Search merges keyword (BM25) and vector results with equal-weight reciprocal rank fusion, collapses duplicate prompts, leaves out `session`, groups runs by session, and asks [Jev](https://typesafe.ai) to rerank the top 25 when `TYPESAFE_API_KEY` is set. If Jev fails or takes over 350 ms, the merged order is returned with a `warning`.
 
 ### Importing earlier history
 

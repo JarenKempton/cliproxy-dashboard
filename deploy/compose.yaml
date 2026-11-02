@@ -2,7 +2,8 @@
 # and is served at https://cliproxy-dashboard.<tailnet>.ts.net.
 #
 # $DATA holds: env (CPA_MANAGEMENT_KEY, CPA_TARGET, TAILNET_PROXY_URL,
-# TAILNET_DASHBOARD_URL), ts-authkey, data/, backups/, tailscale/.
+# TAILNET_DASHBOARD_URL, TYPESAFE_API_KEY), ts-authkey, data/, backups/,
+# tailscale/, and history/ (raw transcripts pushed by each machine).
 services:
   tailscale:
     image: tailscale/tailscale:v1.102.5
@@ -31,7 +32,23 @@ services:
     volumes:
       - ${DATA}/data:/app/data
       - ${DATA}/backups:/app/.backups
+      - ${DATA}/history:/app/history
       - socket:/var/run/tailscale
+
+  # Indexes closed runs from history/ into data/history.db for search.
+  indexer:
+    image: ${IMAGE:-ghcr.io/jarenkempton/cliproxy-dashboard:main}
+    command: ["bun", "server/src/history/indexer.ts"]
+    restart: unless-stopped
+    network_mode: none
+    env_file: ${DATA}/env
+    environment:
+      HISTORY_EMBED_THREADS: 2
+    cpus: 2
+    mem_limit: 3g
+    volumes:
+      - ${DATA}/data:/app/data
+      - ${DATA}/history:/app/history:ro
 
 volumes:
   socket:

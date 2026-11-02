@@ -8,6 +8,9 @@ import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { existsSync } from 'node:fs'
 import { createApp } from './http/app'
+import { historyEnv } from './history/env'
+import { HistorySearch, jevFromEnv } from './history/search'
+import { historyPushApp, historySearchApp } from './http/history'
 import { connectApp } from './http/connect'
 import { MANAGEMENT_PREFIX, managementApp } from './http/management'
 import { startLanListener } from './http/lan'
@@ -50,6 +53,8 @@ const connect = {
 const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
 app.route('/connect', connectApp(connect))
+app.route('/history', historyPushApp(db, keys))
+app.route('/history', historySearchApp(new HistorySearch(historyEnv.dbPath, jevFromEnv(historyEnv.typesafeApiKey))))
 app.route(MANAGEMENT_PREFIX, managementApp(env.proxyUrl, env.managementKey, env.allowWrites))
 app.route('/', museRelay(env.proxyUrl, env.managementKey, keys))
 if (existsSync(env.staticDir)) {

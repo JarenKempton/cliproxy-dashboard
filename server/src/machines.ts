@@ -7,6 +7,7 @@
 import { and, eq, isNotNull, notExists, sql } from 'drizzle-orm'
 import type { Db } from './db/client'
 import { machineIdentities, machines, requests, tailnetDevices } from './db/schema'
+import { hashKey } from './usage/cliproxy-record'
 
 export type IdentityKind = 'key' | 'ip'
 
@@ -97,4 +98,15 @@ function deleteUnusedMachines(tx: Pick<Db, 'delete' | 'select'>) {
   tx.delete(machines)
     .where(notExists(tx.select().from(machineIdentities).where(eq(machineIdentities.machineId, machines.id))))
     .run()
+}
+
+// The machine a proxy key is dedicated to, if it has been named.
+export function machineOfKey(db: Db, key: string): string | null {
+  const row = db
+    .select({ name: machines.name })
+    .from(machineIdentities)
+    .innerJoin(machines, eq(machines.id, machineIdentities.machineId))
+    .where(and(eq(machineIdentities.kind, 'key'), eq(machineIdentities.value, hashKey(key))))
+    .get()
+  return row?.name ?? null
 }
