@@ -41,9 +41,15 @@ function useAccountHours() {
   return hours
 }
 
+type View = 'burndown' | 'windows'
+const VIEW_KEY = 'quota-timeline-view'
+
 export function Timeline() {
   const { files, quotas, now } = useStore()
-  const [mode, setMode] = useState<TimelineMode>('weekly')
+  const [view, setView] = useState<View>(() => (localStorage.getItem(VIEW_KEY) === 'windows' ? 'windows' : 'burndown'))
+  const [laneMode, setLaneMode] = useState<TimelineMode>('weekly')
+  const burndown = view === 'burndown'
+  const mode: TimelineMode = burndown ? 'weekly' : laneMode
   const [offset, setOffset] = useState(0)
   const compact = useCompact()
   const span = timelineSpan(mode, offset, now, compact)
@@ -66,7 +72,7 @@ export function Timeline() {
   const nowPct = ((now - span.startMs) / spanMs) * 100
 
   const lanes = files
-    .filter((f) => !f.disabled)
+    .filter((f) => !burndown && !f.disabled)
     .map((f) => {
       const windows = quotas[f.auth_index]?.quota?.windows ?? []
       const w = pickLaneWindow(windows, mode)
@@ -76,7 +82,7 @@ export function Timeline() {
 
   const hours = useAccountHours()
   const pools = new Map<string, PoolAccount[]>()
-  if (!session) {
+  if (burndown) {
     for (const f of files.filter((file) => !file.disabled)) {
       const weekly = quotas[f.auth_index]?.quota?.windows.find((w) => w.id === 'weekly')
       if (!weekly?.resetAtMs) continue
@@ -108,22 +114,36 @@ export function Timeline() {
             </button>
           </div>
           <Segmented
-            value={mode}
-            onChange={(m) => {
-              setMode(m)
+            value={view}
+            onChange={(v) => {
+              localStorage.setItem(VIEW_KEY, v)
+              setView(v)
               setOffset(0)
             }}
             options={[
-              ['weekly', 'Weekly'],
-              ['session', '5-hour'],
+              ['burndown', 'Burndown'],
+              ['windows', 'Windows'],
             ]}
           />
+          {!burndown && (
+            <Segmented
+              value={laneMode}
+              onChange={(m) => {
+                setLaneMode(m)
+                setOffset(0)
+              }}
+              options={[
+                ['weekly', 'Weekly'],
+                ['session', '5-hour'],
+              ]}
+            />
+          )}
         </div>
       </div>
 
       <div className={session ? 'panel tl tl-session' : 'panel tl'} style={{ '--days': ticks.length } as CSSProperties}>
         <div className="tl-row tl-header">
-          <div className="tl-label eyebrow">Account</div>
+          <div className="tl-label eyebrow">{burndown ? 'Provider' : 'Account'}</div>
           <div className="tl-days">
             {session
               ? ticks.map((t) => (
@@ -147,11 +167,13 @@ export function Timeline() {
           )}
         </div>
 
-        {[...pools].map(([provider, accounts]) =>
-          accounts.length > 1 ? <PoolRow key={provider} provider={provider} accounts={accounts} spanStart={span.startMs} spanEnd={span.endMs} now={now} /> : null,
-        )}
+        {[...pools].map(([provider, accounts]) => (
+          <PoolRow key={provider} provider={provider} accounts={accounts} spanStart={span.startMs} spanEnd={span.endMs} now={now} />
+        ))}
 
-        {lanes.length === 0 && <div className="tl-empty faint">No active account has a {mode === 'weekly' ? 'weekly' : '5-hour'} window to show.</div>}
+        {burndown && pools.size === 0 && <div className="tl-empty faint">No active account has a weekly window to project.</div>}
+
+        {!burndown && lanes.length === 0 && <div className="tl-empty faint">No active account has a {mode === 'weekly' ? 'weekly' : '5-hour'} window to show.</div>}
 
         {lanes.map(({ f, windows, w, bars }) => {
           const provider = providerOf(f)
@@ -200,27 +222,29 @@ export function Timeline() {
           )
         })}
 
-        {nowPct > 0 && nowPct < 100 && lanes.length > 0 && (
+        {nowPct > 0 && nowPct < 100 && (burndown ? pools.size : lanes.length) > 0 && (
           <div className="tl-now-layer" aria-hidden="true">
             <div className="tl-now" style={{ left: `${nowPct}%` }} />
           </div>
         )}
       </div>
 
-      <div className="tl-legend mono faint">
-        <span>
-          <i className="lg live" /> current window · fill = used
-        </span>
-        <span>
-          <i className="lg next" /> upcoming
-        </span>
-        <span>
-          <i className="lg past" /> elapsed
-        </span>
-        <span>
-          <i className="lg now" /> now
-        </span>
-      </div>
+      {!burndown && (
+        <div className="tl-legend mono faint">
+          <span>
+            <i className="lg live" /> current window · fill = used
+          </span>
+          <span>
+            <i className="lg next" /> upcoming
+          </span>
+          <span>
+            <i className="lg past" /> elapsed
+          </span>
+          <span>
+            <i className="lg now" /> now
+          </span>
+        </div>
+      )}
     </section>
   )
 }

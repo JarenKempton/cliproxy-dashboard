@@ -55,6 +55,50 @@ describe('quota pool', () => {
     expect(poolOf([drained, half], spanStart, spanEnd, spanEnd)).toBeNull()
   })
 
+  test('plan fills each account at its reset and empties it by the next', () => {
+    const pool = poolOf([drained, half], spanStart, spanEnd, now)!
+    const at = (t: number) => pool.plan.find((p) => p.t >= t)!.pool
+    const reset = Date.UTC(2026, 9, 31, 16)
+    expect(at(reset - 2 * HOUR)).toBeLessThan(at(reset) - 45)
+    expect(pool.planNow).toBeGreaterThan(35)
+    expect(pool.planNow).toBeLessThan(50)
+  })
+
+  test('says when the pool is below plan and when it gets back', () => {
+    const pool = poolOf([drained, half], spanStart, spanEnd, now)!
+    expect(pool.left).toBeLessThan(pool.planNow)
+    expect(pool.belowPlan!.from).toBe(now)
+    expect(pool.belowPlan!.until).toBeGreaterThan(now)
+    const light = (used: number, reset: number) => account(used, reset, [[Date.UTC(2026, 9, 29, 14), 10]])
+    expect(poolOf([light(5, Date.UTC(2026, 10, 5, 3)), light(5, Date.UTC(2026, 10, 3, 3))], spanStart, spanEnd, now)!.belowPlan).toBeNull()
+  })
+
+  test('safe pace is the fastest that never runs the pool dry before a window passes', () => {
+    const heavy = (used: number) => account(used, Date.UTC(2026, 10, 5, 3), [[Date.UTC(2026, 9, 29, 14), 4000], [Date.UTC(2026, 9, 30, 14), 4000]])
+    const pool = poolOf([heavy(80), heavy(80)], spanStart, spanEnd, now)!
+    expect(pool.safePerDay).toBeGreaterThan(0)
+    expect(pool.safePerDay).toBeLessThan(pool.usualPerDay)
+    expect(poolOf([heavy(100), heavy(100)], spanStart, spanEnd, now)!.safePerDay).toBe(0)
+  })
+
+  test('a projected reset lands on the hour it happens, as the plan does', () => {
+    const light = (reset: number) => account(5, reset, [[Date.UTC(2026, 9, 29, 14), 10]])
+    const pool = poolOf([light(now + 3 * HOUR), light(Date.UTC(2026, 10, 3, 3))], spanStart, spanEnd, now)!
+    expect(pool.projected.find((p) => p.t === now + 3 * HOUR)!.pool).toBeGreaterThan(97)
+  })
+
+  test('an empty pool is not back on plan until it has quota again', () => {
+    const heavy = account(98, Date.UTC(2026, 10, 2, 8), [[Date.UTC(2026, 9, 29, 14), 4000], [Date.UTC(2026, 9, 30, 14), 4000]])
+    const pool = poolOf([heavy], spanStart, spanEnd, now)!
+    expect(pool.belowPlan!.until).toBeGreaterThanOrEqual(Date.UTC(2026, 10, 2, 8))
+  })
+
+  test('a single account is a pool of one', () => {
+    const pool = poolOf([half], spanStart, spanEnd, now)!
+    expect(pool.left).toBe(50)
+    expect(pool.plan.find((p) => p.t >= Date.UTC(2026, 10, 5, 3))!.pool).toBeGreaterThan(99)
+  })
+
   test('weekends weigh far less than workdays', () => {
     expect(workWeight(Date.UTC(2026, 9, 31, 14))).toBeLessThan(workWeight(Date.UTC(2026, 9, 26, 14)) / 5)
   })
