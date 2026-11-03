@@ -184,15 +184,17 @@
     margin: 0;
   }
 
-  .tl-pool .pool-stats {
+  .tl-pool .pool-facts {
     grid-column: 1 / -1;
-    display: flex;
-    gap: 18px;
     margin: 0 0 4px 22px;
   }
 
+  .tl-pool .pool-key {
+    display: none;
+  }
+
   .tl-pool .pool-track {
-    height: 140px;
+    min-height: 140px;
   }
 
   .tl-legend {
