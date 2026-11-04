@@ -10,6 +10,7 @@
 //                                                    and records usage
 
 import { Hono } from 'hono'
+import { getBunServer } from 'hono/bun'
 import type { ProxyKeys } from '../proxy-keys'
 
 const META_ORIGIN = 'https://api.meta.ai'
@@ -68,6 +69,7 @@ export function museRelay(target: string, managementKey: string, keys: ProxyKeys
   })
 
   app.all('/v1/*', async (c) => {
+    getBunServer<Bun.Server<unknown>>(c)?.timeout(c.req.raw, 0)
     const url = new URL(c.req.url)
     const hasBody = !['GET', 'HEAD'].includes(c.req.method)
     const res = await fetch(`${target}${url.pathname}${url.search}`, {
