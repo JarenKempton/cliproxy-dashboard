@@ -303,3 +303,12 @@
   color: var(--fg);
   box-shadow: 0 12px 32px oklch(0 0 0 / 0.5);
 }
+
+/* Sharing ------------------------------------------------------------------- */
+
+.peer-config {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12px;
+}

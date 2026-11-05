@@ -15,6 +15,8 @@ import { connectApp } from './http/connect'
 import { MANAGEMENT_PREFIX, managementApp } from './http/management'
 import { startLanListener } from './http/lan'
 import { museRelay } from './http/muse-relay'
+import { poolGateway, poolSettings } from './http/sharing'
+import { Sharing } from './sharing'
 import { ProxyKeys } from './proxy-keys'
 import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
@@ -38,6 +40,7 @@ const tailnet = new Tailnet(db)
 tailnet.start()
 
 const keys = new ProxyKeys(env.proxyUrl, env.managementKey)
+const pool = new Sharing(db, env.proxyUrl, env.managementKey)
 const connect = {
   db,
   keys,
@@ -52,6 +55,8 @@ const connect = {
 // The dashboard, its /api and /connect, and the management bridge.
 const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
+app.route('/', poolSettings(pool))
+app.route('/', poolGateway(env.proxyUrl, pool))
 app.route('/connect', connectApp(connect))
 app.route('/history', historyPushApp(db, keys))
 app.route('/history', historySearchApp(new HistorySearch(historyEnv.dbPath, jevFromEnv(historyEnv.typesafeApiKey))))
@@ -64,4 +69,4 @@ if (existsSync(env.staticDir)) {
 Bun.serve({ hostname: env.host, port: env.port, fetch: app.fetch })
 console.log(`[server] listening on http://${env.host}:${env.port}`)
 
-if (env.lanPort) startLanListener(db, prices, keys, connect, env.proxyUrl, env.managementKey)
+if (env.lanPort) startLanListener(db, prices, keys, connect, env.proxyUrl, env.managementKey, pool)

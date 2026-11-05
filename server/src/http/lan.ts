@@ -5,6 +5,7 @@
 //   POST /api/import                                     usage-only history; requires a proxy API key
 //   POST /history/push                                   raw transcripts (see history.ts); requires a proxy API key
 //   ALL  /muse-code/*, /v1/*                             Muse relay (see muse-relay.ts); proxy key required
+//   ALL  /pool/v1/*                                      pool gateway (see sharing.ts); pool token required
 //
 // Imports are attributed to the sender's LAN IP.
 
@@ -12,20 +13,23 @@ import { Hono } from 'hono'
 import { getConnInfo } from 'hono/bun'
 import type { Db } from '../db/client'
 import { importTranscripts, type TranscriptFile } from '../import/importer'
+import type { Sharing } from '../sharing'
 import type { ProxyKeys } from '../proxy-keys'
 import type { PriceBook } from '../usage/pricing'
 import { connectApp, type ConnectOptions } from './connect'
 import { historyPushApp } from './history'
 import { museRelay } from './muse-relay'
+import { poolGateway } from './sharing'
 
 const MAX_FAILURES_PER_MINUTE = 10
 
-export function startLanListener(db: Db, prices: PriceBook, keys: ProxyKeys, connect: ConnectOptions, proxyUrl: string, managementKey: string) {
+export function startLanListener(db: Db, prices: PriceBook, keys: ProxyKeys, connect: ConnectOptions, proxyUrl: string, managementKey: string, pool: Sharing) {
   const failures: number[] = []
   const app = new Hono()
 
   app.route('/connect', connectApp({ ...connect, canMint: false }))
   app.route('/', museRelay(proxyUrl, managementKey, keys))
+  app.route('/', poolGateway(proxyUrl, pool))
   app.route('/history', historyPushApp(db, keys))
 
   app.post('/api/import', async (c) => {

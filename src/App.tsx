@@ -1,4 +1,4 @@
-import { ChartColumn, Gauge, KeyRound, Menu, Settings2, Users } from 'lucide-react'
+import { ChartColumn, Gauge, KeyRound, Menu, Settings2, Share2, Users } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Logo } from './components/Logo'
 import { Toaster } from './components/ui'
@@ -8,6 +8,7 @@ import { AccountsPage } from './pages/AccountsPage'
 import { ConfigPage } from './pages/ConfigPage'
 import { KeysPage } from './pages/KeysPage'
 import { QuotaPage } from './pages/QuotaPage'
+import { SharingPage } from './pages/SharingPage'
 import { UsagePage } from './pages/UsagePage'
 
 const ROUTES = {
@@ -15,13 +16,14 @@ const ROUTES = {
   usage: { label: 'Usage', icon: ChartColumn, page: UsagePage },
   accounts: { label: 'Accounts', icon: Users, page: AccountsPage },
   keys: { label: 'API keys', icon: KeyRound, page: KeysPage },
+  sharing: { label: 'Sharing', icon: Share2, page: SharingPage },
   config: { label: 'Config', icon: Settings2, page: ConfigPage },
 } as const
 type Route = keyof typeof ROUTES
 
 const NAV: { section: string; routes: Route[] }[] = [
   { section: 'Monitor', routes: ['quota', 'usage'] },
-  { section: 'Manage', routes: ['accounts', 'keys', 'config'] },
+  { section: 'Manage', routes: ['accounts', 'keys', 'sharing', 'config'] },
 ]
 
 const routeFromHash = (): Route => {
