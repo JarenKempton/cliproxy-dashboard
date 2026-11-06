@@ -6,6 +6,7 @@ import { sendManagementVia } from '../../../src/lib/api'
 import { openDb } from '../db/client'
 import { requests } from '../db/schema'
 import { hashKey } from '../usage/cliproxy-record'
+import { Drain } from '../drain'
 import { SharingStore } from '../sharing'
 import { poolGateway, poolSettings } from './sharing'
 
@@ -67,6 +68,7 @@ const upstream = Bun.serve({
 
 const db = openDb(join(mkdtempSync(join(tmpdir(), 'pool-')), 'usage.db'))
 const store = new SharingStore(db, upstream.url.origin, 'management')
+const drain = new Drain(db, upstream.url.origin, 'management')
 sendManagementVia((path, init) => fetch(`${upstream.url.origin}${path}`, init))
 const gateway = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: poolGateway(upstream.url.origin, store).fetch })
 const token = await store.addPeer('Curt')
@@ -176,7 +178,7 @@ test('someone guessing tokens doesn’t lock out a peer with a valid one', async
 })
 
 test('settings writes must be JSON, so another site can’t post them', async () => {
-  const settings = poolSettings(store)
+  const settings = poolSettings(store, drain)
   const res = await settings.request('/api/pool/peers', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{"name":"Mallory"}' })
   expect(res.status).toBe(415)
   expect(store.peers().map((p) => p.name)).not.toContain('Mallory')
@@ -193,7 +195,7 @@ test('a peer stays until the proxy has actually dropped its key', async () => {
 })
 
 test('settings refuse a host that isn’t this dashboard, so a rebound DNS name can’t use them', async () => {
-  const settings = poolSettings(store, ['dash.example.org'])
+  const settings = poolSettings(store, drain, ['dash.example.org'])
   const send = (host: string) => settings.request(`http://${host}/api/pool/peers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"name":""}' })
   expect((await send('attacker.example:5174')).status).toBe(403)
   for (const host of ['127.0.0.1:5174', 'localhost:5174', '[::1]:5174', '192.168.1.20:8318', 'box.tail1234.ts.net', 'dash.example.org']) expect((await send(host)).status).toBe(400)
