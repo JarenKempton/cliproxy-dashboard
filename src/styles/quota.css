@@ -763,10 +763,3 @@ text.pool-grid {
 .tl-session .tl-bar-label {
   font-size: 12px;
 }
-
-.drain {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}

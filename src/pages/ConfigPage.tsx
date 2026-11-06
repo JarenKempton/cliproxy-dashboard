@@ -5,6 +5,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { RotateCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { parseDocument } from 'yaml'
+import { DrainField } from '../components/DrainField'
 import { ConfirmDialog, PageHead, Segmented, Switch, toast } from '../components/ui'
 import { getConfigYaml, putConfigYaml } from '../lib/api'
 
@@ -202,6 +203,7 @@ export function ConfigPage() {
             <section key={section.title} className="section config-section">
               <div className="eyebrow">{section.title}</div>
               <div className="panel">
+                {section.title === 'Routing' && <DrainField />}
                 {section.fields.map((f) => (
                   <div key={f.path.join('.')} className="cfield">
                     <div className="cfield-text">
