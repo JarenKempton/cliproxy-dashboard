@@ -8,10 +8,19 @@ import { WindowRow } from './QuotaCard'
 
 const shortStamp = (t: number, now: number) => formatStamp(t, now).replace(/^Today /, '')
 
-export function BorrowedCard({ owner, pool, account, name, now }: { owner: string; pool: LentPool; account: LentAccount; name: string; now: number }) {
+type Props = {
+  owner: string
+  pool: LentPool
+  account: LentAccount
+  name: string
+  now: number
+  paused: boolean
+}
+
+export function BorrowedCard({ owner, pool, account, name, now, paused }: Props) {
   const left = pool.until === null ? `until ${owner} stops sharing` : `${formatRelative(pool.until, now).replace(/^in /, '').replace(/ 0m$/, '')} left`
   return (
-    <article className="panel qcard">
+    <article className={paused ? 'panel qcard off' : 'panel qcard'}>
       <header className="qcard-head">
         <span title={PROVIDER_NAMES[pool.provider]}>
           <ProviderMark of={pool.provider} />
@@ -28,8 +37,8 @@ export function BorrowedCard({ owner, pool, account, name, now }: { owner: strin
       </div>
       <footer className="qcard-foot">
         <span className="qcard-status faint">
-          {left}
-          {describeFloors(pool.floors) && ` · hatched = what ${owner} keeps`}
+          {paused ? `paused · resume on the Sharing page` : left}
+          {!paused && describeFloors(pool.floors) && ` · hatched = what ${owner} keeps`}
         </span>
       </footer>
     </article>

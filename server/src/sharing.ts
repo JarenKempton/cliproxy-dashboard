@@ -36,7 +36,29 @@ const LAST_READING_MS = 15 * 60e3
 const COST_HISTORY_MS = 14 * 86400e3
 const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
 
-type UpstreamKey = { 'api-key'?: string; 'base-url'?: string; 'api-key-entries'?: { 'api-key'?: string }[] }
+type UpstreamKey = Record<string, unknown> & {
+  'api-key'?: string
+  'base-url'?: string
+  'api-key-entries'?: { 'api-key'?: string }[]
+  'excluded-models'?: string[]
+  disabled?: boolean
+}
+const UPSTREAM_LISTS = ['claude-api-key', 'codex-api-key', 'openai-compatibility'] as const
+type UpstreamList = (typeof UPSTREAM_LISTS)[number]
+
+const gatewayOf = (e: UpstreamKey) => e['base-url']?.match(GATEWAY)?.[1]
+const isPaused = (list: UpstreamList, e: UpstreamKey) =>
+  list === 'openai-compatibility' ? e.disabled === true : (e['excluded-models'] ?? []).includes('*')
+
+const upstreamEntries = async (res: Response, list: UpstreamList) =>
+  (((await res.json()) as Record<string, UpstreamKey[] | null>)[list] ?? []) as UpstreamKey[]
+
+function withPause(list: UpstreamList, e: UpstreamKey, paused: boolean): UpstreamKey {
+  if (list === 'openai-compatibility') return { ...e, disabled: paused || undefined }
+  const kept = (e['excluded-models'] ?? []).filter((m) => m !== '*')
+  const excluded = paused ? [...kept, '*'] : kept
+  return { ...e, 'excluded-models': excluded.length ? excluded : undefined }
+}
 
 export class SharingStore {
   private lastWindows = new Map<string, { at: number; windows: QuotaWindow[] }>()
@@ -277,28 +299,51 @@ export class SharingStore {
   // Peers this proxy borrows from, found in its own config as upstreams whose
   // base-url is a peer's /pool gateway, with what each shares right now.
   async lenders(): Promise<Lender[]> {
-    const found = new Map<string, { gateway: string; token: string }>()
-    for (const list of ['claude-api-key', 'codex-api-key', 'openai-compatibility']) {
+    const found = new Map<string, { gateway: string; token: string; paused: boolean }>()
+    for (const list of UPSTREAM_LISTS) {
       const res = await this.management(`/${list}`)
       if (!res.ok) continue
-      const entries = (((await res.json()) as Record<string, UpstreamKey[] | null>)[list] ?? []) as UpstreamKey[]
-      for (const e of entries) {
-        const gateway = e['base-url']?.match(GATEWAY)?.[1]
+      for (const e of await upstreamEntries(res, list)) {
+        const gateway = gatewayOf(e)
         const tokens = [e['api-key'], ...(e['api-key-entries'] ?? []).map((k) => k['api-key'])].filter((t): t is string => !!t)
-        for (const token of gateway ? tokens : []) found.set(`${gateway}|${token}`, { gateway: gateway!, token })
+        for (const token of gateway ? tokens : []) {
+          const key = `${gateway}|${token}`
+          found.set(key, { gateway: gateway!, token, paused: (found.get(key)?.paused ?? true) && isPaused(list, e) })
+        }
       }
     }
     return Promise.all(
-      [...found.values()].map(async ({ gateway, token }): Promise<Lender> => {
+      [...found.values()].map(async ({ gateway, token, paused }): Promise<Lender> => {
         try {
           const res = await fetch(`${gateway}/pool/status`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15e3) })
-          if (!res.ok) return { gateway, pools: [], error: `HTTP ${res.status}` }
+          if (!res.ok) return { gateway, paused, pools: [], error: `HTTP ${res.status}` }
           const status = (await res.json()) as LenderStatus
-          return { gateway, owner: status.owner || undefined, pools: status.pools }
+          return { gateway, paused, owner: status.owner || undefined, pools: status.pools }
         } catch (e) {
-          return { gateway, pools: [], error: (e as Error).message }
+          return { gateway, paused, pools: [], error: (e as Error).message }
         }
       }),
     )
+  }
+
+  // Stops or resumes this proxy's use of a lender, keeping its token: every
+  // upstream entry pointing at the lender's gateway excludes all models, or
+  // is disabled where the proxy supports that. False when none points there.
+  async pauseLender(gateway: string, paused: boolean) {
+    const lists = new Map<UpstreamList, UpstreamKey[]>()
+    for (const list of UPSTREAM_LISTS) {
+      const res = await this.management(`/${list}`)
+      if (!res.ok) throw new Error(`the proxy refused to list ${list} (HTTP ${res.status})`)
+      lists.set(list, await upstreamEntries(res, list))
+    }
+    const touched = [...lists].filter(([, entries]) => entries.some((e) => gatewayOf(e) === gateway))
+    if (!touched.length) return false
+    await this.backupConfig()
+    for (const [list, entries] of touched) {
+      const next = entries.map((e) => (gatewayOf(e) === gateway ? withPause(list, e, paused) : e))
+      const put = await this.management(`/${list}`, { method: 'PUT', body: next })
+      if (!put.ok) throw new Error(`the proxy refused the ${list} change (HTTP ${put.status})`)
+    }
+    return true
   }
 }

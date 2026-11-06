@@ -254,6 +254,30 @@ test('finds the peers this proxy borrows from in its own upstream config', async
   expect(lender.pools.map((p) => [p.pool, p.until])).toEqual([['claude', null]])
 })
 
+test('pausing a lender stops every upstream entry pointing at it, keeps its token, and resumes exactly', async () => {
+  const pool = `${gateway.url.origin}/pool`
+  const claude = [
+    { 'api-key': token, 'base-url': pool, priority: -1, 'excluded-models': ['claude-opus-*'] },
+    { 'api-key': 'sk-ant-real', 'base-url': 'https://api.anthropic.com' },
+  ]
+  const grok = [{ name: 'pool-jaren', 'base-url': `${pool}/v1`, 'api-key-entries': [{ 'api-key': token }], models: [] }]
+  proxy.upstreamKeys = claude
+  proxy.lists = { 'codex-api-key': [], 'openai-compatibility': grok }
+
+  expect(await store.pauseLender(gateway.url.origin, true)).toBe(true)
+  expect(proxy.lists['claude-api-key']).toEqual([{ ...claude[0], 'excluded-models': ['claude-opus-*', '*'] }, claude[1]])
+  expect(proxy.lists['openai-compatibility']).toEqual([{ ...grok[0], disabled: true }])
+  expect(proxy.lists['codex-api-key']).toEqual([])
+
+  proxy.upstreamKeys = proxy.lists['claude-api-key'] as typeof claude
+  expect((await store.lenders()).map((l) => l.paused)).toEqual([true])
+
+  await store.pauseLender(gateway.url.origin, false)
+  expect(proxy.lists['claude-api-key']).toEqual(claude)
+  expect(proxy.lists['openai-compatibility']).toEqual(grok)
+  expect(await store.pauseLender('https://nobody.example', true)).toBe(false)
+})
+
 test('refuses once a window is down to the share its owner keeps, and ignores windows the pool lacks', async () => {
   store.share('claude', null)
   store.setFloor('claude', 'Weekly', 70)

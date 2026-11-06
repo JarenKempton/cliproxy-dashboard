@@ -31,7 +31,8 @@ export type LentAccount = { windows: QuotaWindow[]; cost: [hour: number, micros:
 // floors: the percent of each window the lender keeps for itself.
 export type LentPool = { pool: Pool; provider: string; until: number | null; floors: Floors; accounts: LentAccount[] }
 export type LenderStatus = { owner: string; pools: LentPool[] }
-export type Lender = { gateway: string; owner?: string; pools: LentPool[]; error?: string }
+// paused: this proxy keeps the lender's token but sends it nothing.
+export type Lender = { gateway: string; owner?: string; paused: boolean; pools: LentPool[]; error?: string }
 
 const HOUR = 3600e3
 
@@ -69,6 +70,7 @@ export const getSharing = () => call<SharingState>('GET', '')
 // until: a time, null (until turned off) or false (stop now).
 export const setSharing = (pool: Pool, until: number | null | false) => call<Pick<SharingState, 'sharing'>>('PUT', '/sharing', { pool, until })
 export const getLenders = () => call<Lender[]>('GET', '/borrowed')
+export const pauseLender = (gateway: string, paused: boolean) => call<{ ok: true }>('PUT', '/borrowed', { gateway, paused })
 export const setFloor = (pool: Pool, window: string, percent: number) => call<Pick<SharingState, 'floors'>>('PUT', '/floor', { pool, window, percent })
 export const setOwner = (owner: string) => call<{ owner: string }>('PUT', '/owner', { owner })
 // code: a one-time invite for <this dashboard>/pool/invite/<code>, valid until expires.
