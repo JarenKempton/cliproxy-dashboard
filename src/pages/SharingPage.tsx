@@ -1,5 +1,5 @@
 import { Copy, Plus, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ProviderMark } from '../components/ProviderMark'
 import { ShareSetup, type Draft } from '../components/ShareSetup'
 import { ConfirmDialog, copyText, PageHead, Switch, toast } from '../components/ui'
@@ -32,6 +32,7 @@ export function SharingPage() {
   const [state, setState] = useState<SharingState | null>(null)
   const [gateway, setGateway] = useState<string | null>(null)
   const [name, setName] = useState('')
+  const nameInput = useRef<HTMLInputElement>(null)
   const [issued, setIssued] = useState<{
     name: string
     token: string
@@ -127,7 +128,7 @@ export function SharingPage() {
 
   const add = async () => {
     const peer = name.trim()
-    if (!peer) return
+    if (!peer) return nameInput.current?.focus()
     try {
       setIssued({ name: peer, ...(await addPeer(peer)) })
       setByHand(false)
@@ -251,13 +252,14 @@ export function SharingPage() {
           <div className="krow">
             <input
               className="input krow-label"
-              placeholder="Peer name (e.g. Curt)"
+              ref={nameInput}
+              placeholder="Peer name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && add()}
             />
             <span />
-            <button className="btn btn-primary" onClick={add} disabled={!name.trim()}>
+            <button className="btn btn-primary" onClick={add}>
               <Plus size={14} /> Add peer
             </button>
           </div>
