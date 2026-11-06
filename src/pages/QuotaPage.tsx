@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 import { BorrowedCard } from '../components/BorrowedCard'
 import { QuotaCard } from '../components/QuotaCard'
 import { Timeline } from '../components/Timeline'
-import { PageHead } from '../components/ui'
+import { PageHead, Switch, toast } from '../components/ui'
 import { formatAgo } from '../lib/format'
 import { lenderName, useSharingOverview } from '../lib/lenders'
 import { PROVIDER_NAMES } from '../lib/quota'
+import { getDrain, setDrain } from '../lib/sharing'
 import { accountStatus } from '../lib/status'
 import { useStore } from '../lib/store'
 import { getActivity, type AccountActivity } from '../lib/usage'
@@ -29,9 +30,29 @@ function useActivity() {
   return byAccount
 }
 
+// Whether accounts are ranked soonest reset first, and a switch for it.
+function useDrain() {
+  const [on, setOn] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    getDrain()
+      .then((d) => setOn(d.on))
+      .catch(() => {}) // the switch stays hidden
+  }, [])
+  const toggle = () => {
+    setBusy(true)
+    setDrain(!on)
+      .then((d) => setOn(d.on))
+      .catch((e: Error) => toast(`Couldn’t change account order: ${e.message}`))
+      .finally(() => setBusy(false))
+  }
+  return { on, busy, toggle }
+}
+
 export function QuotaPage() {
   const { files, quotas, now, refresh } = useStore()
   const activity = useActivity()
+  const drain = useDrain()
   const sharing = useSharingOverview()
   const borrowed = sharing.lenders.flatMap((l) =>
     l.pools
@@ -59,6 +80,12 @@ export function QuotaPage() {
   return (
     <div className="page">
       <PageHead title="Quota" sub={`${on.length} accounts on${lastAt ? ` · updated ${formatAgo(lastAt, now)}` : ''}`}>
+        {drain.on !== null && (
+          <span className="drain faint" title="Use the account whose weekly quota resets soonest first, so less quota expires unused. Sets each account’s priority in the proxy; turning it off clears them.">
+            Soonest reset first
+            <Switch on={drain.on} label="Use the account that resets soonest first" disabled={drain.busy} onChange={drain.toggle} />
+          </span>
+        )}
         <button className="btn" onClick={refresh} disabled={loading}>
           <RotateCw size={14} className={loading ? 'spin' : undefined} />
           Refresh

@@ -17,6 +17,7 @@ import { startLanListener } from './http/lan'
 import { museRelay } from './http/muse-relay'
 import { poolGateway, poolSettings } from './http/sharing'
 import { SharingStore } from './sharing'
+import { Drain } from './drain'
 import { ProxyKeys } from './proxy-keys'
 import { sendManagementVia } from '../../src/lib/api'
 import { Tailnet } from './tailnet'
@@ -42,6 +43,7 @@ tailnet.start()
 
 const keys = new ProxyKeys(env.proxyUrl, env.managementKey)
 const pool = new SharingStore(db, env.proxyUrl, env.managementKey)
+const drain = new Drain(db, env.proxyUrl, env.managementKey)
 const connect = {
   db,
   keys,
@@ -57,7 +59,7 @@ const connect = {
 const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
 const tailnetHosts = [env.tailnetDashboardUrl, env.tailnetProxyUrl].filter((u): u is string => !!u).map((u) => new URL(u).hostname)
-app.route('/', poolSettings(pool, [...env.dashboardHosts, ...tailnetHosts]))
+app.route('/', poolSettings(pool, drain, [...env.dashboardHosts, ...tailnetHosts]))
 app.route('/', poolGateway(env.proxyUrl, pool))
 app.route('/connect', connectApp(connect))
 app.route('/history', historyPushApp(db, keys))
@@ -65,6 +67,7 @@ app.route('/history', historySearchApp(new HistorySearch(historyEnv.dbPath, jevF
 const bridge = managementApp(env.proxyUrl, env.managementKey, env.allowWrites)
 app.route(MANAGEMENT_PREFIX, bridge)
 sendManagementVia(async (path, init) => bridge.fetch(new Request(`http://bridge${path}`, init)))
+drain.start()
 app.route('/', museRelay(env.proxyUrl, env.managementKey, keys))
 if (existsSync(env.staticDir)) {
   app.use('*', serveStatic({ root: env.staticDir }))
