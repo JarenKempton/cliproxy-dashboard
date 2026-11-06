@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from 'bun:test'
+import { afterAll, beforeEach, expect, setSystemTime, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -271,13 +271,21 @@ test('refuses when any working account’s quota can’t be read, since it could
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
 })
 
-test('a brief quota outage uses the last good reading instead of cutting lending off', async () => {
+test('a brief quota outage uses the last good reading, and a long one refuses', async () => {
   store.share('claude', null)
   store.setFloor('claude', 'Weekly', 30)
+  const start = Date.now()
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
   proxy.quotaDown = true
-  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
-  proxy.quotaDown = false
+  try {
+    setSystemTime(start + 61e3)
+    expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+    setSystemTime(start + 16 * 60e3)
+    expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
+  } finally {
+    setSystemTime()
+    proxy.quotaDown = false
+  }
 })
 
 test('busy borrowing reads each account’s quota at most once a minute', async () => {
