@@ -61,7 +61,7 @@ afterAll(() => {
 beforeEach(() => {
   for (const p of ['claude', 'codex', 'grok', 'muse'] as const) {
     store.stopSharing(p)
-    store.setFloor(p, 0)
+    for (const w of ['5-hour', 'Weekly']) store.setFloor(p, w, 0)
   }
   proxy.accounts = [
     { name: 'claude-1.json', auth_index: 'c1', email: 'lender@example.com', provider: 'claude', models: ['claude-sonnet-5-5'] },
@@ -215,7 +215,7 @@ test('tells a peer what is shared right now: quota windows, hourly cost, its own
         pool: 'claude',
         provider: 'claude',
         until,
-        floor: 0,
+        floors: {},
         accounts: [{ windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, resetAtMs: Date.parse('2099-01-01T00:00:00Z'), periodMs: 168 * 3600e3 }], cost: [[hour, 1500]], yourCost: [[hour, 300]] }],
       },
     ],
@@ -236,12 +236,14 @@ test('finds the peers this proxy borrows from in its own upstream config', async
   expect(lender.pools.map((p) => [p.pool, p.until])).toEqual([['claude', null]])
 })
 
-test('refuses once the pool is down to the share its owner keeps', async () => {
+test('refuses once a window is down to the share its owner keeps, and ignores windows the pool lacks', async () => {
   store.share('claude', null)
-  store.setFloor('claude', 70)
+  store.setFloor('claude', 'Weekly', 70)
   expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
-  store.setFloor('claude', 50)
+  store.setFloor('claude', 'Weekly', 50)
+  store.setFloor('claude', '5-hour', 90)
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
   expect(proxy.forwarded).toHaveLength(1)
+  expect(store.floors().claude).toEqual({ Weekly: 50, '5-hour': 90 })
 })
 

@@ -14,7 +14,7 @@
 //
 //   GET    /api/pool                  sharing, peers, owner
 //   PUT    /api/pool/owner            { owner }: the name peers see
-//   PUT    /api/pool/floor            { pool, percent }: share of each limit kept for yourself
+//   PUT    /api/pool/floor            { pool, window, percent }: share of a quota window kept for yourself (0 clears)
 //   GET    /api/pool/borrowed         peers this proxy borrows from, and what they share
 //   PUT    /api/pool/sharing          { pool, until }: a time, null (until turned off) or false (stop)
 //   POST   /api/pool/peers            { name } -> { token }, shown once
@@ -123,9 +123,10 @@ export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {
   app.get('/', (c) => c.json({ sharing: pool.sharing(), floors: pool.floors(), peers: pool.peers(), owner: pool.owner() }))
 
   app.put('/floor', async (c) => {
-    const { pool: name, percent } = await c.req.json<{ pool?: string; percent?: number }>()
-    if (!isPool(name) || !Number.isInteger(percent) || percent! < 0 || percent! > 90) return c.json({ error: 'pool and a whole percent from 0 to 90 are required' }, 400)
-    pool.setFloor(name, percent!)
+    const { pool: name, window, percent } = await c.req.json<{ pool?: string; window?: string; percent?: number }>()
+    if (!isPool(name) || !window?.trim() || !Number.isInteger(percent) || percent! < 0 || percent! > 90)
+      return c.json({ error: 'pool, window and a whole percent from 0 to 90 are required' }, 400)
+    pool.setFloor(name, window.trim(), percent!)
     pool.forgetStatus()
     return c.json({ floors: pool.floors() })
   })

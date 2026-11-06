@@ -21,6 +21,14 @@ export function SharingPage() {
   const [picked, setPicked] = useState<Partial<Record<Pool, string>>>({})
   const { files, quotas, now } = useStore()
 
+  // The quota windows this pool's accounts report, plus any already kept.
+  const windowsFor = (provider: string, kept: Record<string, number>) => [
+    ...new Set([
+      ...files.filter((f) => !f.disabled && providerOf(f) === provider).flatMap((f) => (quotas[f.auth_index]?.quota?.windows ?? []).map((w) => w.label)),
+      ...Object.keys(kept),
+    ]),
+  ]
+
   const choicesFor = (provider: string) =>
     sharingChoices(
       files.filter((f) => !f.disabled && providerOf(f) === provider).flatMap((f) => quotas[f.auth_index]?.quota?.windows ?? []),
@@ -61,10 +69,10 @@ export function SharingPage() {
     }
   }
 
-  const keep = async (pool: Pool, percent: number) => {
+  const keep = async (pool: Pool, window: string, percent: number) => {
     if (!state) return
     try {
-      const { floors } = await setFloor(pool, percent)
+      const { floors } = await setFloor(pool, window, percent)
       setState({ ...state, floors })
     } catch (err) {
       toast(`Couldn’t change what you keep: ${(err as Error).message}`)
@@ -147,19 +155,23 @@ export function SharingPage() {
                     ))}
                   </select>
                 )}
-                <select
-                  className="input share-floor"
-                  aria-label={`Share of each ${p.label} limit to keep for yourself`}
-                  value={state?.floors[p.id] ?? 0}
-                  disabled={!state}
-                  onChange={(e) => keep(p.id, Number(e.target.value))}
-                >
-                  {FLOORS.map((f) => (
-                    <option key={f} value={f}>
-                      {f ? `Keep ${f}% for me` : 'Keep nothing back'}
-                    </option>
-                  ))}
-                </select>
+                {windowsFor(p.provider, state?.floors[p.id] ?? {}).length > 0 && <span className="faint share-keep">Keep for me</span>}
+                {windowsFor(p.provider, state?.floors[p.id] ?? {}).map((w) => (
+                  <select
+                    key={w}
+                    className="input share-floor"
+                    aria-label={`Share of the ${p.label} ${w} window to keep for yourself`}
+                    value={state?.floors[p.id]?.[w] ?? 0}
+                    disabled={!state}
+                    onChange={(e) => keep(p.id, w, Number(e.target.value))}
+                  >
+                    {FLOORS.map((f) => (
+                      <option key={f} value={f}>
+                        {w}: {f ? `${f}%` : 'none'}
+                      </option>
+                    ))}
+                  </select>
+                ))}
               </span>
               <Switch on={!!current} label={`Share ${p.label}`} disabled={!state} onChange={() => share(p.id, current ? false : choice.until)} />
             </div>
@@ -168,7 +180,7 @@ export function SharingPage() {
       </div>
       <p className="mono faint">
         {sharingAny
-          ? 'Peers can use a shared pool only while it has a working account here, and only above what you keep.'
+          ? 'Peers can use a shared pool only while it has a working account here, and only while every window has more left than you keep.'
           : 'Nothing is shared. Every peer request is refused before it reaches the proxy.'}
       </p>
 

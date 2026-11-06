@@ -38,7 +38,7 @@ export function WindowRow({ w, now, floor = 0, refills = false }: { w: QuotaWind
       <div className="qrow-head">
         <span>{w.label}</span>
         <span className={`mono qrow-value ${level(remaining - floor)}`}>
-          {Math.round(remaining)}%{floor > 0 && ` · ${Math.round(Math.max(0, remaining - floor))} yours`}
+          {floor > 0 ? `${Math.round(Math.max(0, remaining - floor))}% yours` : `${Math.round(remaining)}%`}
         </span>
       </div>
       <div className={`dbar ${level(remaining)}`} role="meter" aria-label={`${w.label} remaining`} aria-valuenow={Math.round(remaining)} aria-valuemin={0} aria-valuemax={100}>

@@ -344,3 +344,7 @@
 .share-owner .input {
   width: 160px;
 }
+
+.share-keep {
+  margin-left: 6px;
+}

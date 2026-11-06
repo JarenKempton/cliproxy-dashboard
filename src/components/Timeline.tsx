@@ -106,7 +106,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
             peerCost: new Map(a.yourCost),
             window: { ...weekly, resetAtMs: weekly.resetAtMs },
             lentUntil: lent.until,
-            floor: lent.floor,
+            floor: lent.floors[weekly.label] ?? 0,
           }
           pools.set(lent.provider, [...(pools.get(lent.provider) ?? []), account])
         }
@@ -115,7 +115,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
   }
   const borrowedFor = (provider: string) =>
     sharing.lenders.flatMap((l) =>
-      l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until, floor: p.floor })),
+      l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until, floors: p.floors })),
     )
   const peerLabelFor = (provider: string) => {
     const owners = [...new Set(borrowedFor(provider).map((b) => b.owner))]
@@ -125,7 +125,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
   const lendingFor = (provider: string) => {
     const pool = POOLS.find((p) => p.provider === provider)
     const lent = pool && sharing.lending?.[pool.id]
-    return lent && (lent.until === null || lent.until > now) ? { ...lent, floor: sharing.floors?.[pool.id] ?? 0 } : null
+    return lent && (lent.until === null || lent.until > now) ? { ...lent, floors: sharing.floors?.[pool.id] ?? {} } : null
   }
 
   const dateLabel = (d: Date) => `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`

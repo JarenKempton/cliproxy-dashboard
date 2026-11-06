@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { formatStamp } from '../lib/format'
 import { PLAN_SLACK, poolOf, type Pool, type PoolAccount, type PoolPoint } from '../lib/pool'
 import { PROVIDER_NAMES } from '../lib/quota'
-import type { Sharing } from '../lib/sharing'
+import type { Floors, Sharing } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 
 // Measures the element once it mounts, which can be after the first render.
@@ -42,8 +42,8 @@ export function PoolRow({
 }: {
   provider: string
   accounts: PoolAccount[]
-  borrowed: { owner: string; until: number | null; floor: number }[]
-  lending: (Sharing & { floor: number }) | null
+  borrowed: { owner: string; until: number | null; floors: Floors }[]
+  lending: (Sharing & { floors: Floors }) | null
   peerLabel: string
   spanStart: number
   spanEnd: number
@@ -76,13 +76,17 @@ export function PoolRow({
       value: aroundHour(pool.belowPlan.until, now),
     })
   if (nextRefill < Infinity) facts.push({ term: 'Next refill', value: formatStamp(nextRefill, now) })
+  const keptFacts = (term: string, floors: Floors) =>
+    Object.entries(floors)
+      .filter(([, f]) => f > 0)
+      .forEach(([window, f], i) => facts.push({ term: i ? '' : term, value: `${f}% ${window.toLowerCase()}` }))
   for (const b of borrowed) {
     facts.push({ term: `From ${b.owner}`, value: untilText(b.until, now) })
-    if (b.floor) facts.push({ term: `${b.owner} keeps`, value: `${b.floor}%` })
+    keptFacts(`${b.owner} keeps`, b.floors)
   }
   if (lending) {
     facts.push({ term: 'Lent to peers', value: untilText(lending.until, now) })
-    if (lending.floor) facts.push({ term: 'You keep', value: `${lending.floor}%` })
+    keptFacts('You keep', lending.floors)
   }
   facts.push({
     term: 'Your pace',
@@ -112,7 +116,7 @@ export function PoolRow({
         <span className={`pool-pill ${status.tone}`}>{status.text}</span>
         <dl className="pool-facts">
           {facts.map(({ term, value, tone }) => (
-            <div key={term} className={tone}>
+            <div key={`${term}|${value}`} className={tone}>
               <dt>{term}</dt>
               <dd>{value}</dd>
             </div>

@@ -2,7 +2,7 @@
 
 import { formatRelative, formatStamp } from '../lib/format'
 import { PROVIDER_NAMES } from '../lib/quota'
-import type { LentAccount, LentPool } from '../lib/sharing'
+import { describeFloors, type LentAccount, type LentPool } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 import { WindowRow } from './QuotaCard'
 
@@ -23,11 +23,14 @@ export function BorrowedCard({ owner, pool, account, name, now }: { owner: strin
       </header>
       <div className="qcard-body">
         {account.windows.map((w) => (
-          <WindowRow key={w.id} w={w} now={now} refills />
+          <WindowRow key={w.id} w={w} now={now} floor={pool.floors[w.label] ?? 0} refills />
         ))}
       </div>
       <footer className="qcard-foot">
-        <span className="qcard-status faint">{left}</span>
+        <span className="qcard-status faint">
+          {left}
+          {describeFloors(pool.floors) && ` · hatched = what ${owner} keeps`}
+        </span>
       </footer>
     </article>
   )

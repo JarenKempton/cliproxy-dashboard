@@ -13,14 +13,23 @@ export type Pool = (typeof POOLS)[number]['id']
 
 export type Peer = { id: number; name: string; createdAt: number }
 export type Sharing = { until: number | null }
-export type SharingState = { sharing: Record<Pool, Sharing | null>; floors: Record<Pool, number>; peers: Peer[]; owner: string }
+// Percent of each quota window kept for yourself, by window label ('5-hour', 'Weekly', ...).
+export type Floors = Record<string, number>
+
+// "30% weekly · 20% 5-hour"
+export const describeFloors = (floors: Floors) =>
+  Object.entries(floors)
+    .filter(([, f]) => f > 0)
+    .map(([w, f]) => `${f}% ${w.toLowerCase()}`)
+    .join(' · ')
+export type SharingState = { sharing: Record<Pool, Sharing | null>; floors: Record<Pool, Floors>; peers: Peer[]; owner: string }
 export type Choice = { id: string; label: string; until: number | null }
 
 // What a lender reports about the pools it shares, for a borrower's Quota page.
 // yourCost: the part of cost the asking peer sent.
 export type LentAccount = { windows: QuotaWindow[]; cost: [hour: number, micros: number][]; yourCost: [hour: number, micros: number][] }
-// floor: the percent of each limit the lender keeps for itself.
-export type LentPool = { pool: Pool; provider: string; until: number | null; floor: number; accounts: LentAccount[] }
+// floors: the percent of each window the lender keeps for itself.
+export type LentPool = { pool: Pool; provider: string; until: number | null; floors: Floors; accounts: LentAccount[] }
 export type LenderStatus = { owner: string; pools: LentPool[] }
 export type Lender = { gateway: string; owner?: string; pools: LentPool[]; error?: string }
 
@@ -60,7 +69,7 @@ export const getSharing = () => call<SharingState>('GET', '')
 // until: a time, null (until turned off) or false (stop now).
 export const setSharing = (pool: Pool, until: number | null | false) => call<Pick<SharingState, 'sharing'>>('PUT', '/sharing', { pool, until })
 export const getLenders = () => call<Lender[]>('GET', '/borrowed')
-export const setFloor = (pool: Pool, percent: number) => call<Pick<SharingState, 'floors'>>('PUT', '/floor', { pool, percent })
+export const setFloor = (pool: Pool, window: string, percent: number) => call<Pick<SharingState, 'floors'>>('PUT', '/floor', { pool, window, percent })
 export const setOwner = (owner: string) => call<{ owner: string }>('PUT', '/owner', { owner })
 export const addPeer = (name: string) => call<{ token: string }>('POST', '/peers', { name })
 export const removePeer = (id: number) => call<{ ok: true }>('DELETE', `/peers/${id}`)

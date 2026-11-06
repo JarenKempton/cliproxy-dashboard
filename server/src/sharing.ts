@@ -5,7 +5,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { eq, like } from 'drizzle-orm'
 import { listAuthFiles } from '../../src/lib/api'
 import { fetchQuota, providerOf } from '../../src/lib/quota'
-import type { Lender, LenderStatus, LentPool } from '../../src/lib/sharing'
+import type { Floors, Lender, LenderStatus, LentPool } from '../../src/lib/sharing'
 import type { Db } from './db/client'
 import { keyLabels, poolPeers, poolSharing, settings } from './db/schema'
 import { setKeyLabel } from './keys'
@@ -23,6 +23,7 @@ type AuthEntry = { name: string; provider?: string; type?: string; disabled?: bo
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 const PEER_LABEL = 'Pool: '
+const FLOOR_KEY = 'floor:'
 
 // Every peer's proxy key, removed peers included: their labels stay.
 export function peerKeyHashes(db: Db) {
@@ -141,15 +142,25 @@ export class SharingStore {
     return null
   }
 
-  // The share of each limit kept for this proxy's own use, in percent.
-  floors(): Record<Pool, number> {
-    const rows = new Map(this.db.select().from(settings).all().map((r) => [r.key, Number(r.value)]))
-    return Object.fromEntries(Object.keys(POOLS).map((p) => [p, rows.get(`floor:${p}`) ?? 0])) as Record<Pool, number>
+  // The share of each quota window kept for this proxy's own use, in
+  // percent, by pool and window label ('5-hour', 'Weekly', ...).
+  floors(): Record<Pool, Floors> {
+    const floors = Object.fromEntries(Object.keys(POOLS).map((p) => [p, {}])) as Record<Pool, Floors>
+    for (const row of this.db.select().from(settings).where(like(settings.key, `${FLOOR_KEY}%`)).all()) {
+      const [pool, window] = row.key.slice(FLOOR_KEY.length).split(/:(.*)/s)
+      if (isPool(pool) && window) floors[pool][window] = Number(row.value)
+    }
+    return floors
   }
 
-  setFloor(pool: Pool, percent: number) {
+  setFloor(pool: Pool, window: string, percent: number) {
+    const key = `${FLOOR_KEY}${pool}:${window}`
+    if (!percent) {
+      this.db.delete(settings).where(eq(settings.key, key)).run()
+      return
+    }
     const value = String(percent)
-    this.db.insert(settings).values({ key: `floor:${pool}`, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
+    this.db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
   }
 
   owner(): string {
@@ -186,7 +197,7 @@ export class SharingStore {
           yourCost: mine.filter((h) => h.peerMicros > 0).map((h): [number, number] => [h.hour, h.peerMicros]),
         })
       }
-      if (accounts.length) pools.push({ pool, provider, until: sharing[pool]!.until, floor: floors[pool], accounts })
+      if (accounts.length) pools.push({ pool, provider, until: sharing[pool]!.until, floors: floors[pool], accounts })
     }
     const body = { owner: this.owner(), pools }
     this.status.set(peer.id, { at: now, body })
@@ -197,19 +208,22 @@ export class SharingStore {
     this.status.clear()
   }
 
-  // Whether the pool has more left than its floor: the tightest limit of
-  // each working account, averaged over the pool. The proxy picks which
-  // account serves a request, so with several accounts this is pool-wide.
+  // Whether every window with a floor has more left than it, averaged over
+  // the pool's working accounts. The proxy picks which account serves a
+  // request, so with several accounts this is pool-wide.
   private async aboveFloor(pool: Pool) {
-    const floor = this.floors()[pool]
-    if (!floor) return true
+    const floors = Object.entries(this.floors()[pool])
+    if (!floors.length) return true
     const files = (await listAuthFiles()).filter((f) => providerOf(f) === POOLS[pool] && !f.disabled && !f.unavailable)
-    const left: number[] = []
+    const left = new Map<string, number[]>()
     for (const f of files) {
       const quota = await fetchQuota(f).catch(() => null)
-      if (quota?.windows.length) left.push(Math.min(...quota.windows.map((w) => 100 - w.usedPercent)))
+      for (const w of quota?.windows ?? []) left.set(w.label, [...(left.get(w.label) ?? []), 100 - w.usedPercent])
     }
-    return left.length > 0 && left.reduce((s, l) => s + l, 0) / left.length > floor
+    return floors.every(([window, floor]) => {
+      const readings = left.get(window)
+      return !readings || readings.reduce((s, l) => s + l, 0) / readings.length > floor
+    })
   }
 
   // Peers this proxy borrows from, found in its own config as upstreams whose
