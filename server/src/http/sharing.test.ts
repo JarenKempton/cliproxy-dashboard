@@ -14,6 +14,7 @@ type Account = { name: string; auth_index: string; email: string; provider: stri
 const proxy = {
   refuseDeletes: false,
   quotaDown: false,
+  unreadable: [] as string[],
   upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
@@ -35,8 +36,8 @@ const upstream = Bun.serve({
     if (url.pathname === '/v0/management/auth-files') return Response.json({ files: proxy.accounts })
     if (url.pathname === '/v0/management/claude-api-key') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
     if (url.pathname === '/v0/management/api-call') {
-      if (proxy.quotaDown) return Response.json({ status_code: 429, header: { 'Retry-After': ['60'] }, body: '{}' })
-      const call = (await req.json()) as { url: string }
+      const call = (await req.json()) as { url: string; authIndex: string }
+      if (proxy.quotaDown || proxy.unreadable.includes(call.authIndex)) return Response.json({ status_code: 429, header: { 'Retry-After': ['60'] }, body: '{}' })
       const usage = { limits: [{ kind: 'weekly_all', percent: 40, resets_at: '2099-01-01T00:00:00Z' }] }
       return Response.json({ status_code: 200, body: call.url.endsWith('/usage') ? JSON.stringify(usage) : '{}' })
     }
@@ -255,6 +256,16 @@ test('refuses while a kept share can’t be checked because quota can’t be rea
   proxy.quotaDown = true
   expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
   proxy.quotaDown = false
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+})
+
+test('refuses when any working account’s quota can’t be read, since it could be the one nearly spent', async () => {
+  store.share('claude', null)
+  store.setFloor('claude', 'Weekly', 30)
+  proxy.accounts.push({ name: 'claude-2.json', auth_index: 'c2', email: 'second@example.com', provider: 'claude', models: ['claude-sonnet-5-5'] })
+  proxy.unreadable = ['c2']
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
+  proxy.unreadable = []
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
 })
 

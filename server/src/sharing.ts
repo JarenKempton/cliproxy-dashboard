@@ -209,22 +209,23 @@ export class SharingStore {
   }
 
   // Whether every window with a floor has more left than it, averaged over
-  // the pool's working accounts. The proxy picks which account serves a
-  // request, so with several accounts this is pool-wide.
+  // the pool's working accounts, every one of which must be readable. The
+  // proxy picks which account serves a request, so with several accounts
+  // this is pool-wide.
   private async aboveFloor(pool: Pool) {
     const floors = Object.entries(this.floors()[pool])
     if (!floors.length) return true
     const files = (await listAuthFiles()).filter((f) => providerOf(f) === POOLS[pool] && !f.disabled && !f.unavailable)
     const left = new Map<string, number[]>()
-    let read = false
     for (const f of files) {
       const quota = await fetchQuota(f).catch(() => null)
-      read ||= !!quota
-      for (const w of quota?.windows ?? []) left.set(w.label, [...(left.get(w.label) ?? []), 100 - w.usedPercent])
+      // An account that can't be read could be the one nearly spent, so the
+      // kept share can't be checked: refuse.
+      if (!quota?.windows.length) return false
+      for (const w of quota.windows) left.set(w.label, [...(left.get(w.label) ?? []), 100 - w.usedPercent])
     }
-    // Without any reading the kept share can't be checked, so refuse. A
-    // window no account reports is one this pool doesn't have.
-    if (!read) return false
+    // A window no account reports is one this pool doesn't have.
+    if (!left.size) return false
     return floors.every(([window, floor]) => {
       const readings = left.get(window)
       return !readings || readings.reduce((s, l) => s + l, 0) / readings.length > floor
