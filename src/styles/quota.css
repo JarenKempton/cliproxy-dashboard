@@ -756,20 +756,3 @@ text.pool-grid {
 .tl-session .tl-bar-label {
   font-size: 12px;
 }
-
-/* Borrowed card ------------------------------------------------------------- */
-
-.lent-until {
-  margin: 0;
-  font-size: 14px;
-  color: var(--fg);
-}
-
-.lent-until b {
-  font-weight: 600;
-}
-
-.lent-note {
-  margin: -6px 0 2px;
-  font-size: 12px;
-}
