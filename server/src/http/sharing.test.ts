@@ -13,6 +13,7 @@ type Account = { name: string; auth_index: string; email: string; provider: stri
 
 const proxy = {
   refuseDeletes: false,
+  quotaDown: false,
   upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
@@ -34,6 +35,7 @@ const upstream = Bun.serve({
     if (url.pathname === '/v0/management/auth-files') return Response.json({ files: proxy.accounts })
     if (url.pathname === '/v0/management/claude-api-key') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
     if (url.pathname === '/v0/management/api-call') {
+      if (proxy.quotaDown) return Response.json({ status_code: 429, header: { 'Retry-After': ['60'] }, body: '{}' })
       const call = (await req.json()) as { url: string }
       const usage = { limits: [{ kind: 'weekly_all', percent: 40, resets_at: '2099-01-01T00:00:00Z' }] }
       return Response.json({ status_code: 200, body: call.url.endsWith('/usage') ? JSON.stringify(usage) : '{}' })
@@ -245,5 +247,14 @@ test('refuses once a window is down to the share its owner keeps, and ignores wi
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
   expect(proxy.forwarded).toHaveLength(1)
   expect(store.floors().claude).toEqual({ Weekly: 50, '5-hour': 90 })
+})
+
+test('refuses while a kept share can’t be checked because quota can’t be read', async () => {
+  store.share('claude', null)
+  store.setFloor('claude', 'Weekly', 30)
+  proxy.quotaDown = true
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
+  proxy.quotaDown = false
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
 })
 
