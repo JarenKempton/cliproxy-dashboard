@@ -15,6 +15,7 @@ const proxy = {
   refuseDeletes: false,
   quotaDown: false,
   quotaReads: 0,
+  accountsDown: false,
   unreadable: [] as string[],
   listsDown: false,
   upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
@@ -36,6 +37,7 @@ const upstream = Bun.serve({
       if (req.method === 'DELETE') proxy.apiKeys = proxy.apiKeys.filter((k) => k !== url.searchParams.get('value'))
       return Response.json({ status: 'ok' })
     }
+    if (url.pathname === '/v0/management/auth-files' && proxy.accountsDown) return new Response('down', { status: 500 })
     if (url.pathname === '/v0/management/auth-files') return Response.json({ files: proxy.accounts })
     if (url.pathname === '/v0/management/claude-api-key' && req.method === 'GET') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
     const list = url.pathname.match(/^\/v0\/management\/(claude-api-key|codex-api-key|openai-compatibility)$/)?.[1]
@@ -343,5 +345,21 @@ test('an invite isn’t spent when this proxy’s config can’t be read', async
   await expect(store.join(link)).rejects.toThrow('refused to list')
   proxy.listsDown = false
   expect(await store.join(link)).toMatchObject({ gateway: gateway.url.origin })
+})
+
+test('a lender that can’t list its models refuses the claim without spending the invite', async () => {
+  const { code } = store.invites.mint(token)
+  proxy.accountsDown = true
+  const res = await fetch(`${gateway.url.origin}/pool/invite/${code}`)
+  proxy.accountsDown = false
+  expect(res.status).toBe(502)
+  expect(store.invites.claim(code)).toBe(token)
+})
+
+test('re-joining drops a stale Grok/Muse entry when the lender no longer has those models', async () => {
+  proxy.lists = { 'openai-compatibility': [{ name: 'pool-jaren', 'api-key-entries': [{ 'api-key': 'pool-revoked' }], 'base-url': `${gateway.url.origin}/pool/v1` }] }
+  const { code } = store.invites.mint(token)
+  await store.join(`${gateway.url.origin}/pool/invite/${code}`)
+  expect(proxy.lists['openai-compatibility']).toEqual([])
 })
 

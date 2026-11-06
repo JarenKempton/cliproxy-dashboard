@@ -34,50 +34,66 @@ export class Invites {
 }
 
 type Entry = Record<string, unknown> & { 'api-key'?: string; 'base-url'?: string }
+const LISTS = ['claude-api-key', 'codex-api-key', 'openai-compatibility']
 
-// Claims an invite link and adds the lender's gateway to this proxy's config
-// as fallback upstreams for Claude, Codex and (when the lender has any) Grok
-// and Muse models. An entry already pointing at this gateway gets the new
-// token (and model list), so re-joining after a re-invite repairs it. The
-// config is read before the one-time invite is spent.
-export async function joinPeer(link: string, management: Management, backup: () => Promise<void>) {
-  const match = link.trim().match(INVITE)
-  if (!match) throw new Error('That isn’t an invite link')
-  const gateway = new URL(match[1]).origin
+async function readLists(management: Management) {
   const lists = new Map<string, Entry[]>()
-  for (const list of ['claude-api-key', 'codex-api-key', 'openai-compatibility']) {
+  for (const list of LISTS) {
     const current = await management(`/${list}`)
     if (!current.ok) throw new Error(`The proxy refused to list ${list} (HTTP ${current.status})`)
     lists.set(list, (((await current.json()) as Record<string, Entry[] | null>)[list] ?? []) as Entry[])
   }
+  return lists
+}
+
+// Claims an invite link and adds the lender's gateway to this proxy's config
+// as fallback upstreams for Claude, Codex and (when the lender has any) Grok
+// and Muse models. An entry already pointing at this gateway gets the new
+// token (and model list), so re-joining after a re-invite repairs it; a
+// Grok/Muse entry is dropped when the lender no longer has those models.
+// The config is checked readable and backed up before the one-time invite
+// is spent, then read again just before writing.
+export async function joinPeer(link: string, management: Management, backup: () => Promise<void>) {
+  const match = link.trim().match(INVITE)
+  if (!match) throw new Error('That isn’t an invite link')
+  const gateway = new URL(match[1]).origin
+  await readLists(management)
   await backup()
 
   const res = await fetch(link.trim(), { signal: AbortSignal.timeout(15e3) })
   if (!res.ok) throw new Error(res.status === 404 ? 'That invite was already used or has expired' : `The lender refused the invite (HTTP ${res.status})`)
   const { owner, token, models } = (await res.json()) as InviteClaim
 
+  const lists = await readLists(management)
   const fallback = { priority: -1, 'disable-cooling': true }
-  const additions: [string, Entry][] = [
+  const additions: [string, Entry | null][] = [
     ['claude-api-key', { 'api-key': token, 'base-url': `${gateway}/pool`, ...fallback }],
     ['codex-api-key', { 'api-key': token, 'base-url': `${gateway}/pool/v1`, ...fallback }],
   ]
-  if (models.length)
-    additions.push([
-      'openai-compatibility',
-      {
-        name: `pool-${(owner || new URL(gateway).hostname).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-        'base-url': `${gateway}/pool/v1`,
-        'api-key-entries': [{ 'api-key': token }],
-        models: models.map((name) => ({ name, alias: name })),
-        ...fallback,
-      },
-    ])
+  additions.push([
+    'openai-compatibility',
+    models.length
+      ? {
+          name: `pool-${(owner || new URL(gateway).hostname).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+          'base-url': `${gateway}/pool/v1`,
+          'api-key-entries': [{ 'api-key': token }],
+          models: models.map((name) => ({ name, alias: name })),
+          ...fallback,
+        }
+      : null,
+  ])
 
   const written: string[] = []
   for (const [list, entry] of additions) {
     const entries = lists.get(list)!
-    const at = entries.findIndex((e) => e['base-url'] === entry['base-url'])
-    const next = at < 0 ? [...entries, entry] : entries.map((e, i) => (i === at ? { ...e, ...entry, priority: e.priority ?? entry.priority } : e))
+    const url = list === 'claude-api-key' ? `${gateway}/pool` : `${gateway}/pool/v1`
+    const at = entries.findIndex((e) => e['base-url'] === url)
+    if (!entry && at < 0) continue
+    const next = !entry
+      ? entries.filter((_, i) => i !== at)
+      : at < 0
+        ? [...entries, entry]
+        : entries.map((e, i) => (i === at ? { ...e, ...entry, priority: e.priority ?? entry.priority } : e))
     const put = await management(`/${list}`, { method: 'PUT', body: next })
     if (!put.ok) {
       const done = written.length ? ` after updating ${written.join(' and ')}` : ''

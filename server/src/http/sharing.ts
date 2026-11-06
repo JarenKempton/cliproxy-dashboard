@@ -73,12 +73,15 @@ export function poolGateway(target: string, pool: SharingStore) {
   app.get('/pool/invite/:code', async (c) => {
     const ip = getConnInfo(c).remote.address ?? 'unknown'
     if ((failures.get(ip) ?? []).filter((t) => t > Date.now() - 60e3).length >= MAX_FAILURES_PER_MINUTE) return c.json({ error: 'too many attempts' }, 429)
+    // Everything that can fail runs before the one-time code is spent.
+    const models = await pool.lendableModels().catch((e: Error) => e)
+    if (models instanceof Error) return c.json({ error: `the lender's proxy isn't ready: ${models.message}` }, 502)
     const token = pool.invites.claim(c.req.param('code'))
     if (!token) {
       tooManyFailures(c)
       return c.json({ error: 'unknown, used or expired invite' }, 404)
     }
-    return c.json({ owner: pool.owner(), token, models: await pool.lendableModels() })
+    return c.json({ owner: pool.owner(), token, models })
   })
 
   app.get('/pool/status', async (c) => {
