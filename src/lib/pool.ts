@@ -31,12 +31,14 @@ export type PoolAccount = {
   peerCost?: Map<number, number>
 }
 export type PoolPoint = { t: number; pool: number }
+export type PeerDrop = { from: number; to: number; points: number }
 
 export type Pool = {
   left: number
   past: PoolPoint[]
-  // Where the pool would have stood without the sharing spend; null when there was none.
-  pastWithoutPeers: PoolPoint[] | null
+  // Stretches of the past where sharing spend drew the pool down, and by how
+  // many points of the pool.
+  peerDrops: PeerDrop[]
   projected: PoolPoint[]
   plan: PoolPoint[]
   planNow: number
@@ -126,25 +128,25 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
     const peer = accounts[i].peerCost
     return peer ? costBetween(peer, from, to) / microsPerPercent[i] : 0
   }
-  const levelAt = (i: number, t: number, withoutPeers = false) => {
+  const levelAt = (i: number, t: number) => {
     const a = accounts[i]
-    const start = windowStart(a.window, t)
-    const used = costBetween(a.cost, start, t) / microsPerPercent[i] - (withoutPeers ? peerUse(i, start, t) : 0)
+    const used = costBetween(a.cost, windowStart(a.window, t), t) / microsPerPercent[i]
     return Math.min(100, Math.max(0, 100 - used))
   }
-  const poolAt = (t: number, withoutPeers = false) => accounts.reduce((s, _, i) => s + levelAt(i, t, withoutPeers), 0) / accounts.length
+  const poolAt = (t: number) => accounts.reduce((s, _, i) => s + levelAt(i, t), 0) / accounts.length
 
   const past: PoolPoint[] = []
   for (let t = floorHour(spanStart); t < now; t += HOUR) past.push({ t, pool: poolAt(t) })
   const left = accounts.reduce((s, a) => s + Math.max(0, 100 - a.window.usedPercent), 0) / accounts.length
   past.push({ t: now, pool: left })
-  const hadPeers = accounts.some((_, i) => peerUse(i, spanStart, now) > 0)
-  const leftWithoutPeers =
-    accounts.reduce((s, a, i) => s + Math.min(100, Math.max(0, 100 - a.window.usedPercent) + peerUse(i, windowStart(a.window, now), now)), 0) /
-    accounts.length
-  const pastWithoutPeers = hadPeers
-    ? [...past.slice(0, -1).map((p) => ({ t: p.t, pool: poolAt(p.t, true) })), { t: now, pool: leftWithoutPeers }]
-    : null
+  const peerDrops: PeerDrop[] = []
+  for (let t = floorHour(spanStart); t < now; t += HOUR) {
+    const points = accounts.reduce((s, _, i) => s + peerUse(i, t, Math.min(t + HOUR, now)), 0) / accounts.length
+    if (points <= 0) continue
+    const last = peerDrops.at(-1)
+    if (last && last.to === t) Object.assign(last, { to: Math.min(t + HOUR, now), points: last.points + points })
+    else peerDrops.push({ from: t, to: Math.min(t + HOUR, now), points })
+  }
 
   const lentUntil = (a: PoolAccount) => (a.lentUntil === undefined || a.lentUntil === null ? Infinity : a.lentUntil)
   const usedRecently = accounts.reduce(
@@ -197,7 +199,7 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   return {
     left,
     past,
-    pastWithoutPeers,
+    peerDrops,
     projected,
     plan,
     planNow: planAt(now),

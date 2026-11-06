@@ -22,7 +22,8 @@ function level(remaining: number) {
   return remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
 }
 
-export function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
+// refills: say when the window refills, as a time, rather than how long until it resets.
+export function WindowRow({ w, now, refills = false }: { w: QuotaWindow; now: number; refills?: boolean }) {
   const remaining = Math.max(0, Math.min(100, 100 - w.usedPercent))
   const pace = paceOf(w, now)
   // Where "remaining" would sit on an even burn; ahead of it means headroom.
@@ -42,7 +43,9 @@ export function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
         {paceMark !== null && pace.kind !== 'maxed' && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
       </div>
       <div className="qrow-meta mono">
-        <span className="faint">{w.resetAtMs ? `resets ${formatRelative(w.resetAtMs, now)}` : 'not started'}</span>
+        <span className="faint">
+          {!w.resetAtMs ? 'not started' : refills ? `refills ${formatStamp(w.resetAtMs, now)}` : `resets ${formatRelative(w.resetAtMs, now)}`}
+        </span>
         {pace.kind === 'short' && (
           <span className="warn-text" title="At your current rate you'll hit this limit before it resets.">
             Runs out {formatStamp(pace.runsOutAtMs, now)}

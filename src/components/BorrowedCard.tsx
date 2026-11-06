@@ -1,23 +1,12 @@
-// An account a peer lends this proxy: when sharing ends, first, then its quota.
+// An account a peer lends this proxy: how long you can use it, then its quota.
 
-import { formatRelative, formatStamp } from '../lib/format'
+import { formatStamp } from '../lib/format'
 import { PROVIDER_NAMES } from '../lib/quota'
-import type { LentAccount, LentPool } from '../lib/sharing'
+import { untilNote, type LentAccount, type LentPool } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 import { WindowRow } from './QuotaCard'
 
-const span = (from: number, to: number) => formatRelative(to, from).replace(/^in /, '').replace(/ ago$/, '')
-
-function versusReset(account: LentAccount, until: number) {
-  const reset = account.windows.find((w) => w.id === 'session')?.resetAtMs
-  if (!reset) return null
-  return until < reset
-    ? { tone: 'warn', text: `Ends ${span(until, reset)} before this 5-hour window resets` }
-    : { tone: 'faint', text: `Still shared ${span(reset, until)} after this 5-hour window resets` }
-}
-
 export function BorrowedCard({ owner, pool, account, name, now }: { owner: string; pool: LentPool; account: LentAccount; name: string; now: number }) {
-  const relation = pool.until === null ? null : versusReset(account, pool.until)
   return (
     <article className="panel qcard">
       <header className="qcard-head">
@@ -30,22 +19,18 @@ export function BorrowedCard({ owner, pool, account, name, now }: { owner: strin
         </span>
       </header>
       <div className="qcard-body">
-        <div className="lent-until">
-          {pool.until === null ? (
-            <>
-              <b>No end set</b>
-              <span className="faint">shared until {owner} stops it</span>
-            </>
-          ) : (
-            <>
-              <b>{formatStamp(pool.until, now)}</b>
-              <span className="faint">available until · {span(now, pool.until)} left</span>
-            </>
-          )}
-        </div>
-        {relation && <p className={`lent-relation ${relation.tone}`}>{relation.text}</p>}
+        {pool.until === null ? (
+          <p className="lent-until">You can use this until {owner} stops sharing</p>
+        ) : (
+          <>
+            <p className="lent-until">
+              You can use this until <b>{formatStamp(pool.until, now)}</b>
+            </p>
+            <p className="lent-note faint">{untilNote(account, pool.until, now)}</p>
+          </>
+        )}
         {account.windows.map((w) => (
-          <WindowRow key={w.id} w={w} now={now} />
+          <WindowRow key={w.id} w={w} now={now} refills />
         ))}
       </div>
     </article>

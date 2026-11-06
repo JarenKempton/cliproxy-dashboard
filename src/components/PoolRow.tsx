@@ -27,6 +27,7 @@ function planStatus(pool: Pool, now: number) {
   return { tone: 'warn', text: 'Drops below plan' }
 }
 
+const HOUR_FMT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
 const untilText = (until: number | null, now: number) => (until === null ? 'until turned off' : `until ${formatStamp(until, now)}`)
 
 export function PoolRow({
@@ -131,12 +132,9 @@ export function PoolRow({
             </svg>{' '}
             below plan
           </span>
-          {pool.pastWithoutPeers && (
+          {pool.peerDrops.length > 0 && (
             <span>
-              <svg width="20" height="10">
-                <rect className="pool-peer" y="1" width="20" height="8" />
-              </svg>{' '}
-              {peerLabel}
+              <KeyLine className="pool-line peer" /> {peerLabel}
             </span>
           )}
         </div>
@@ -204,14 +202,14 @@ function PoolChart({
       {under.map((u, i) => (
         <polygon key={i} className="pool-under" points={u} />
       ))}
-      {pool.pastWithoutPeers && (
-        <polygon className="pool-peer" points={`${points(pool.pastWithoutPeers)} ${points(pool.past.toReversed())}`}>
-          <title>{peerLabel}</title>
-        </polygon>
-      )}
       <polyline className="pool-plan" points={points(pool.plan)} />
       <polyline className="pool-line" points={points(pool.past)} />
       <polyline className="pool-line future" points={points(pool.projected)} />
+      {pool.peerDrops.map((d) => (
+        <polyline key={d.from} className="pool-line peer" points={points(pool.past.filter((p) => p.t >= d.from && p.t <= d.to))}>
+          <title>{`${peerLabel}: ${Math.max(1, Math.round(d.points))}% of the pool, ${formatStamp(d.from, now)} – ${HOUR_FMT.format(d.to)}`}</title>
+        </polyline>
+      ))}
       {[100, 50].map((v) => (
         <text key={v} className="pool-grid" x={4} y={y(v) - 3}>
           {v}%

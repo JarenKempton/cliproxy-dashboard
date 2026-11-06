@@ -1,6 +1,6 @@
 // Client for the usage server's sharing settings (server/src/http/sharing.ts).
 
-import { formatStamp } from './format'
+import { formatRelative, formatStamp } from './format'
 import type { QuotaWindow } from './quota'
 
 export const POOLS = [
@@ -83,4 +83,16 @@ openai-compatibility:
     api-key-entries:
       - api-key: ${token}
     models: [] # the Grok and Muse models to borrow, e.g. - name: grok-4`
+}
+
+const TIMES = ['once', 'twice']
+
+// "5h from now. Its 5-hour limit refills once before then."
+export function untilNote(account: LentAccount, until: number, now: number) {
+  const fromNow = `${formatRelative(until, now).replace(/^in /, '').replace(/ 0m$/, '')} from now.`
+  const session = account.windows.find((w) => w.id === 'session')
+  if (!session?.resetAtMs) return fromNow
+  if (session.resetAtMs >= until) return `${fromNow} Sharing ends before its 5-hour limit refills.`
+  const refills = 1 + Math.floor((until - session.resetAtMs) / session.periodMs)
+  return `${fromNow} Its 5-hour limit refills ${TIMES[refills - 1] ?? `${refills} times`} before then.`
 }

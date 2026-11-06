@@ -610,9 +610,9 @@
   opacity: 0.4;
 }
 
-.pool-peer {
-  fill: oklch(0.72 0.14 300);
-  opacity: 0.5;
+.pool-line.peer {
+  stroke: oklch(0.72 0.14 300);
+  stroke-width: 3;
 }
 
 .pool-line {
@@ -760,24 +760,16 @@ text.pool-grid {
 /* Borrowed card ------------------------------------------------------------- */
 
 .lent-until {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  font-size: 12px;
-}
-
-.lent-until b {
-  font-size: 17px;
-  font-weight: 600;
+  margin: 0;
+  font-size: 14px;
   color: var(--fg);
 }
 
-.lent-relation {
-  margin: -4px 0 2px;
-  font-size: 12px;
+.lent-until b {
+  font-weight: 600;
 }
 
-.lent-relation.warn {
-  color: var(--warn);
+.lent-note {
+  margin: -6px 0 2px;
+  font-size: 12px;
 }

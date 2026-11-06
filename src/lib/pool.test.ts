@@ -139,16 +139,17 @@ describe('sharing spend on the burndown', () => {
   const window = Date.UTC(2026, 10, 5, 3)
   const spend: [number, number][] = [[Date.UTC(2026, 9, 29, 14), 250], [Date.UTC(2026, 9, 30, 14), 250]]
 
-  test('shows where the pool would have been without what a peer used', () => {
-    const lent = { ...account(50, window, spend), peerCost: new Map([[Date.UTC(2026, 9, 30, 14), 250]]) }
+  test('marks the hours a peer drew the pool down, and by how much', () => {
+    const lent = {
+      ...account(50, window, spend),
+      peerCost: new Map([[Date.UTC(2026, 9, 30, 14), 200], [Date.UTC(2026, 9, 30, 15), 50]]),
+    }
     const pool = poolOf([lent], spanStart, spanEnd, now)!
-    expect(pool.pastWithoutPeers!.at(-1)).toEqual({ t: now, pool: 75 })
-    const before = (p: { t: number }) => p.t === Date.UTC(2026, 9, 30, 12)
-    expect(pool.pastWithoutPeers!.find(before)!.pool).toBe(pool.past.find(before)!.pool)
+    expect(pool.peerDrops).toEqual([{ from: Date.UTC(2026, 9, 30, 14), to: Date.UTC(2026, 9, 30, 16), points: 25 }])
   })
 
   test('has nothing to show without sharing spend', () => {
-    expect(poolOf([account(50, window, spend)], spanStart, spanEnd, now)!.pastWithoutPeers).toBeNull()
+    expect(poolOf([account(50, window, spend)], spanStart, spanEnd, now)!.peerDrops).toEqual([])
   })
 })
 
