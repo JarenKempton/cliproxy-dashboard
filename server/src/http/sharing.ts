@@ -71,12 +71,11 @@ export function poolGateway(target: string, pool: SharingStore) {
   }
 
   app.get('/pool/invite/:code', async (c) => {
-    const now = Date.now()
-    while (failures.length && failures[0] < now - 60e3) failures.shift()
-    if (failures.length >= MAX_FAILURES_PER_MINUTE) return c.json({ error: 'too many attempts' }, 429)
+    const ip = getConnInfo(c).remote.address ?? 'unknown'
+    if ((failures.get(ip) ?? []).filter((t) => t > Date.now() - 60e3).length >= MAX_FAILURES_PER_MINUTE) return c.json({ error: 'too many attempts' }, 429)
     const token = pool.invites.claim(c.req.param('code'))
     if (!token) {
-      failures.push(now)
+      tooManyFailures(c)
       return c.json({ error: 'unknown, used or expired invite' }, 404)
     }
     return c.json({ owner: pool.owner(), token, models: await pool.lendableModels() })

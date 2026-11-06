@@ -16,6 +16,7 @@ const proxy = {
   quotaDown: false,
   quotaReads: 0,
   unreadable: [] as string[],
+  listsDown: false,
   upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
   lists: {} as Record<string, unknown[]>,
   apiKeys: ['sk-own-machine'],
@@ -42,6 +43,7 @@ const upstream = Bun.serve({
       proxy.lists[list] = (await req.json()) as unknown[]
       return Response.json({ status: 'ok' })
     }
+    if (list && proxy.listsDown) return new Response('down', { status: 500 })
     if (list) return Response.json({ [list]: proxy.lists[list] ?? [] })
     if (url.pathname === '/v0/management/config.yaml') return new Response('api-keys: []\n')
     if (url.pathname === '/v0/management/api-call') {
@@ -325,5 +327,21 @@ test('an invite link works once, and joining adds the lender as fallback upstrea
 test('an invite expires after 15 minutes', () => {
   const { code } = store.invites.mint('pool-x', 0)
   expect(store.invites.claim(code, 15 * 60e3 + 1)).toBeNull()
+})
+
+test('joining again after a re-invite swaps in the new token instead of keeping the dead one', async () => {
+  proxy.lists = { 'claude-api-key': [{ 'api-key': 'pool-revoked', 'base-url': `${gateway.url.origin}/pool`, priority: -1 }] }
+  const { code } = store.invites.mint(token)
+  await store.join(`${gateway.url.origin}/pool/invite/${code}`)
+  expect(proxy.lists['claude-api-key']).toEqual([{ 'api-key': token, 'base-url': `${gateway.url.origin}/pool`, priority: -1, 'disable-cooling': true }])
+})
+
+test('an invite isn’t spent when this proxy’s config can’t be read', async () => {
+  const { code } = store.invites.mint(token)
+  const link = `${gateway.url.origin}/pool/invite/${code}`
+  proxy.listsDown = true
+  await expect(store.join(link)).rejects.toThrow('refused to list')
+  proxy.listsDown = false
+  expect(await store.join(link)).toMatchObject({ gateway: gateway.url.origin })
 })
 

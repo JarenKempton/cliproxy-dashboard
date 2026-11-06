@@ -13,7 +13,6 @@ import { setKeyLabel } from './keys'
 import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
 import { accountHours } from './usage/summary'
-import { saveBackup } from './http/management'
 import { Invites, joinPeer } from './pool-invites'
 
 export const POOLS = { claude: 'claude', codex: 'codex', grok: 'xai', muse: 'meta' } as const
@@ -138,11 +137,7 @@ export class SharingStore {
 
   // Adds a lender from its invite link to this proxy's config.
   join(link: string) {
-    return joinPeer(link, (path, init) => this.management(path, init), async () => {
-      const res = await this.management('/config.yaml')
-      if (!res.ok) throw new Error(`Couldn’t back up config.yaml before writing (HTTP ${res.status})`)
-      saveBackup(await res.text())
-    })
+    return joinPeer(link, (path, init) => this.management(path, init), () => this.backupConfig())
   }
 
   peerFor(token: string) {
