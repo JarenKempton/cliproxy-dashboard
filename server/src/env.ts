@@ -37,7 +37,7 @@ export const env = {
   // name), comma-separated. Loopback, IPs and *.ts.net are always accepted.
   dashboardHosts: (process.env.DASHBOARD_HOSTS ?? '')
     .split(',')
-    .map((h) => h.trim().toLowerCase())
+    .map((h) => h.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[:/].*$/, ''))
     .filter(Boolean),
 
   // Built dashboard (`npm run build`); served when present.
