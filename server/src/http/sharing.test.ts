@@ -156,3 +156,23 @@ test('a peer stays until the proxy has actually dropped its key', async () => {
   await store.removePeer(peer.id)
 })
 
+test('settings refuse a host that isn’t this dashboard, so a rebound DNS name can’t use them', async () => {
+  const settings = poolSettings(store, ['dash.example.org'])
+  const send = (host: string) => settings.request(`http://${host}/api/pool/peers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"name":""}' })
+  expect((await send('attacker.example:5174')).status).toBe(403)
+  for (const host of ['127.0.0.1:5174', 'localhost:5174', '[::1]:5174', '192.168.1.20:8318', 'box.tail1234.ts.net', 'dash.example.org']) expect((await send(host)).status).toBe(400)
+})
+
+test('a peer isn’t left behind when the proxy can’t be reached while adding it', async () => {
+  const before = store.peers().length
+  const original = globalThis.fetch
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
+    String(input).endsWith('/api-keys') && init?.method === 'PUT' ? Promise.reject(new Error('reset')) : original(input, init)) as typeof fetch
+  try {
+    await expect(store.addPeer('Flaky')).rejects.toThrow('couldn’t reach the proxy')
+  } finally {
+    globalThis.fetch = original
+  }
+  expect(store.peers()).toHaveLength(before)
+})
+

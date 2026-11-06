@@ -52,6 +52,7 @@ export function poolGateway(target: string, pool: SharingStore) {
     const ip = getConnInfo(c).remote.address ?? 'unknown'
     const recent = [...(failures.get(ip) ?? []).filter((t) => t > now - 60e3), now]
     failures.set(ip, recent)
+    if (failures.size > 256) for (const [addr, times] of failures) if (times.every((t) => t <= now - 60e3)) failures.delete(addr)
     return recent.length > MAX_FAILURES_PER_MINUTE
   }
 
@@ -85,8 +86,21 @@ export function poolGateway(target: string, pool: SharingStore) {
   return app
 }
 
-export function poolSettings(pool: SharingStore) {
+// Hosts this dashboard is reached by: loopback, an IP, its Tailscale name, or
+// one configured. Anything else is a page whose name was pointed at this
+// machine (DNS rebinding), which the browser would treat as same-origin.
+export function trustedHost(hostname: string, extra: string[] = []) {
+  const name = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  return name === 'localhost' || /^[\d.]+$/.test(name) || name.includes(':') || name.endsWith('.ts.net') || extra.includes(name)
+}
+
+export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {
   const app = new Hono().basePath('/api/pool')
+
+  app.use('*', async (c, next) => {
+    if (!trustedHost(new URL(c.req.url).hostname, extraHosts)) return c.json({ error: 'unknown host' }, 403)
+    await next()
+  })
 
   // Writes must be JSON, which a page on another site can only send after a
   // CORS preflight this server never answers.

@@ -80,10 +80,10 @@ export class SharingStore {
     const { 'api-keys': existing = [] } = (await res.json()) as { 'api-keys'?: string[] }
     await this.backupConfig()
     const { id } = this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).returning({ id: poolPeers.id }).get()
-    const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] })
-    if (!put.ok) {
+    const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] }).catch((e: Error) => e)
+    if (put instanceof Error || !put.ok) {
       this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
-      throw new Error(`the proxy refused the new key (HTTP ${put.status})`)
+      throw new Error(put instanceof Error ? `couldn’t reach the proxy: ${put.message}` : `the proxy refused the new key (HTTP ${put.status})`)
     }
     setKeyLabel(this.db, hashKey(proxyKey), `Pool: ${name}`)
     return token
