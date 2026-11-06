@@ -128,7 +128,7 @@ export class SharingStore {
     if (!res.ok) throw new Error(`the proxy refused to list accounts (HTTP ${res.status})`)
     const files = ((await res.json()) as { files?: AuthEntry[] }).files ?? []
     const models = new Set<string>()
-    for (const f of files.filter((file) => [POOLS.grok, POOLS.muse].includes((file.provider ?? file.type) as 'xai' | 'meta') && !file.disabled)) {
+    for (const f of files.filter((file) => [POOLS.grok, POOLS.muse].includes((file.provider ?? file.type) as 'xai' | 'meta') && !file.disabled && !file.unavailable)) {
       const list = await this.management(`/auth-files/models?name=${encodeURIComponent(f.name)}`)
       if (!list.ok) throw new Error(`the proxy refused to list models (HTTP ${list.status})`)
       for (const m of ((await list.json()) as { models?: { id: string }[] }).models ?? []) models.add(m.id)

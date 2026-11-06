@@ -64,7 +64,9 @@ export async function joinPeer(link: string, management: Management, backup: () 
   if (!res.ok) throw new Error(res.status === 404 ? 'That invite was already used or has expired' : `The lender refused the invite (HTTP ${res.status})`)
   const { owner, token, models } = (await res.json()) as InviteClaim
 
-  const lists = await readLists(management)
+  const lists = await readLists(management).catch((e: Error) => {
+    throw new Error(`${e.message}. The invite is used up; ask for a new one.`)
+  })
   const fallback = { priority: -1, 'disable-cooling': true }
   const additions: [string, Entry | null][] = [
     ['claude-api-key', { 'api-key': token, 'base-url': `${gateway}/pool`, ...fallback }],

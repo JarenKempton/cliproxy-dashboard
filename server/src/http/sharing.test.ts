@@ -57,6 +57,7 @@ const upstream = Bun.serve({
     }
     if (url.pathname === '/v0/management/auth-files/models') {
       const account = proxy.accounts.find((a) => a.name === url.searchParams.get('name'))
+      if (account?.unavailable) return new Response('gone', { status: 500 })
       return Response.json({ models: (account?.models ?? []).map((id) => ({ id })) })
     }
     proxy.forwarded.push({ path: url.pathname, auth: req.headers.get('authorization'), apiKey: req.headers.get('x-api-key'), body: await req.text() })
@@ -361,5 +362,10 @@ test('re-joining drops a stale Grok/Muse entry when the lender no longer has tho
   const { code } = store.invites.mint(token)
   await store.join(`${gateway.url.origin}/pool/invite/${code}`)
   expect(proxy.lists['openai-compatibility']).toEqual([])
+})
+
+test('an unavailable Grok or Muse account doesn’t block invites', async () => {
+  proxy.accounts.push({ name: 'grok-stale.json', auth_index: 'g9', email: 'old@example.com', provider: 'xai', unavailable: true, models: [] })
+  expect(await store.lendableModels()).toEqual([])
 })
 
