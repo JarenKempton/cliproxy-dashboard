@@ -8,6 +8,7 @@ import { listKeyLabels, setKeyLabel } from '../keys'
 import { clearIdentityName, listDevices, nameIdentity, type IdentityKind } from '../machines'
 import type { Tailnet } from '../tailnet'
 import { hashKey } from '../usage/cliproxy-record'
+import { peerKeyHashes } from '../sharing'
 import type { PriceBook } from '../usage/pricing'
 import { accountHours, RANGES, recentActivity, usageSummary, type Range } from '../usage/summary'
 
@@ -51,7 +52,7 @@ export function createApp(db: Db, collector: CliproxyCollector, prices: PriceBoo
   // ?days=21: proxy cost per account and hour, to chart quota burn between readings.
   app.get('/account-hours', (c) => {
     const days = Math.min(Math.max(Number(c.req.query('days')) || 21, 1), 35)
-    return c.json(accountHours(db, Date.now() - days * 86400e3))
+    return c.json(accountHours(db, Date.now() - days * 86400e3, peerKeyHashes(db)))
   })
 
   // Machines as seen by the proxy: proxy keys and client IPs, with names.

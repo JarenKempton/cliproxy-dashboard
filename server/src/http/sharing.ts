@@ -68,8 +68,8 @@ export function poolGateway(target: string, pool: SharingStore) {
   }
 
   app.get('/pool/status', async (c) => {
-    const { refused } = peerOf(c)
-    return refused ?? c.json(await pool.lenderStatus())
+    const { peer, refused } = peerOf(c)
+    return peer ? c.json(await pool.lenderStatus(peer)) : refused
   })
 
   app.all('/pool/v1/*', async (c) => {

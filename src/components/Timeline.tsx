@@ -90,8 +90,10 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
       if (!weekly?.resetAtMs) continue
       const provider = providerOf(f)
       const label = f.email ?? accountName(f)
-      const cost = new Map(hours.filter((h) => h.provider === provider && h.account === label).map((h) => [h.hour, h.costMicros]))
-      pools.set(provider, [...(pools.get(provider) ?? []), { cost, window: { ...weekly, resetAtMs: weekly.resetAtMs } }])
+      const mine = hours.filter((h) => h.provider === provider && h.account === label)
+      const cost = new Map(mine.map((h) => [h.hour, h.costMicros]))
+      const peerCost = new Map(mine.filter((h) => h.peerMicros > 0).map((h) => [h.hour, h.peerMicros]))
+      pools.set(provider, [...(pools.get(provider) ?? []), { cost, peerCost, window: { ...weekly, resetAtMs: weekly.resetAtMs } }])
     }
     for (const lender of sharing.lenders) {
       for (const lent of lender.pools) {
@@ -99,7 +101,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
         for (const a of lent.accounts) {
           const weekly = a.windows.find((w) => w.id === 'weekly')
           if (!weekly?.resetAtMs) continue
-          const account = { cost: new Map(a.cost), window: { ...weekly, resetAtMs: weekly.resetAtMs }, lentUntil: lent.until }
+          const account = { cost: new Map(a.cost), peerCost: new Map(a.yourCost), window: { ...weekly, resetAtMs: weekly.resetAtMs }, lentUntil: lent.until }
           pools.set(lent.provider, [...(pools.get(lent.provider) ?? []), account])
         }
       }
@@ -107,6 +109,11 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
   }
   const borrowedFor = (provider: string) =>
     sharing.lenders.flatMap((l) => l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until })))
+  const peerLabelFor = (provider: string) => {
+    const owners = [...new Set(borrowedFor(provider).map((b) => b.owner))]
+    if (owners.length) return owners.length === 1 ? `from ${owners[0]}’s` : 'from borrowed'
+    return sharing.peers.length === 1 ? `used by ${sharing.peers[0].name}` : 'used by peers'
+  }
   const lendingFor = (provider: string) => {
     const pool = POOLS.find((p) => p.provider === provider)
     const lent = pool && sharing.lending?.[pool.id]
@@ -194,6 +201,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
             accounts={accounts}
             borrowed={borrowedFor(provider)}
             lending={lendingFor(provider)}
+            peerLabel={peerLabelFor(provider)}
             spanStart={span.startMs}
             spanEnd={span.endMs}
             now={now}

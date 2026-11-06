@@ -2,12 +2,12 @@
 // Everything is off until a pool is shared; see http/pool.ts for the gateway.
 
 import { createHash, randomBytes } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, like } from 'drizzle-orm'
 import { listAuthFiles } from '../../src/lib/api'
 import { fetchQuota, providerOf } from '../../src/lib/quota'
 import type { Lender, LenderStatus, LentPool } from '../../src/lib/sharing'
 import type { Db } from './db/client'
-import { poolPeers, poolSharing, settings } from './db/schema'
+import { keyLabels, poolPeers, poolSharing, settings } from './db/schema'
 import { setKeyLabel } from './keys'
 import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
@@ -22,6 +22,12 @@ export type Sharing = { until: number | null }
 type AuthEntry = { name: string; provider?: string; type?: string; disabled?: boolean; unavailable?: boolean }
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
+const PEER_LABEL = 'Pool: '
+
+// Every peer's proxy key, removed peers included: their labels stay.
+export function peerKeyHashes(db: Db) {
+  return db.select({ hash: keyLabels.keyHash }).from(keyLabels).where(like(keyLabels.label, `${PEER_LABEL}%`)).all().map((r) => r.hash)
+}
 const STATUS_TTL_MS = 60e3
 const COST_HISTORY_MS = 14 * 86400e3
 const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
@@ -29,7 +35,7 @@ const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
 type UpstreamKey = { 'api-key'?: string; 'base-url'?: string; 'api-key-entries'?: { 'api-key'?: string }[] }
 
 export class SharingStore {
-  private status: { at: number; body: LenderStatus } | null = null
+  private status = new Map<number, { at: number; body: LenderStatus }>()
 
   constructor(
     private db: Db,
@@ -96,7 +102,7 @@ export class SharingStore {
       this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
       throw new Error(put instanceof Error ? `couldn’t reach the proxy: ${put.message}` : `the proxy refused the new key (HTTP ${put.status})`)
     }
-    setKeyLabel(this.db, hashKey(proxyKey), `Pool: ${name}`)
+    setKeyLabel(this.db, hashKey(proxyKey), `${PEER_LABEL}${name}`)
     return token
   }
 
@@ -143,14 +149,16 @@ export class SharingStore {
     this.db.insert(settings).values({ key: 'owner', value: name }).onConflictDoUpdate({ target: settings.key, set: { value: name } }).run()
   }
 
-  // The pools shared right now, with each account's quota windows and recent
-  // hourly cost, so a borrower can fold them into its own burndown.
-  async lenderStatus(now = Date.now()): Promise<LenderStatus> {
-    if (this.status && now - this.status.at < STATUS_TTL_MS) return this.status.body
+  // The pools shared right now, with each account's quota windows, recent
+  // hourly cost, and the part of it this peer sent, so the peer can fold them
+  // into its own burndown.
+  async lenderStatus(peer: { id: number; proxyKey: string }, now = Date.now()): Promise<LenderStatus> {
+    const cached = this.status.get(peer.id)
+    if (cached && now - cached.at < STATUS_TTL_MS) return cached.body
     const sharing = this.sharing(now)
     const shared = (Object.keys(POOLS) as Pool[]).filter((p) => sharing[p])
     const files = shared.length ? (await listAuthFiles()).filter((f) => !f.disabled) : []
-    const hours = shared.length ? accountHours(this.db, now - COST_HISTORY_MS) : []
+    const hours = shared.length ? accountHours(this.db, now - COST_HISTORY_MS, [hashKey(peer.proxyKey)]) : []
     const pools: LentPool[] = []
     for (const pool of shared) {
       const provider = POOLS[pool]
@@ -159,18 +167,22 @@ export class SharingStore {
         const quota = await fetchQuota(f).catch(() => null)
         if (!quota) continue
         const label = f.email || f.label || f.name
-        const cost = hours.filter((h) => h.provider === provider && h.account === label).map((h): [number, number] => [h.hour, h.costMicros])
-        accounts.push({ windows: quota.windows, cost })
+        const mine = hours.filter((h) => h.provider === provider && h.account === label)
+        accounts.push({
+          windows: quota.windows,
+          cost: mine.map((h): [number, number] => [h.hour, h.costMicros]),
+          yourCost: mine.filter((h) => h.peerMicros > 0).map((h): [number, number] => [h.hour, h.peerMicros]),
+        })
       }
       if (accounts.length) pools.push({ pool, provider, until: sharing[pool]!.until, accounts })
     }
     const body = { owner: this.owner(), pools }
-    this.status = { at: now, body }
+    this.status.set(peer.id, { at: now, body })
     return body
   }
 
   forgetStatus() {
-    this.status = null
+    this.status.clear()
   }
 
   // Peers this proxy borrows from, found in its own config as upstreams whose

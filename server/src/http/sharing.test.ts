@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { sendManagementVia } from '../../../src/lib/api'
 import { openDb } from '../db/client'
 import { requests } from '../db/schema'
+import { hashKey } from '../usage/cliproxy-record'
 import { SharingStore } from '../sharing'
 import { poolGateway, poolSettings } from './sharing'
 
@@ -190,10 +191,13 @@ test('a peer isn’t left behind when the proxy can’t be reached while adding 
   expect(store.peers()).toHaveLength(before)
 })
 
-test('tells a peer what is shared right now: quota windows, hourly cost and when it ends', async () => {
+test('tells a peer what is shared right now: quota windows, hourly cost, its own part, and when it ends', async () => {
   const hour = Math.floor(Date.now() / 3600e3) * 3600e3 - 3600e3
   db.insert(requests)
-    .values({ id: 'r1', source: 'cliproxy', occurredAt: new Date(hour + 60e3), receivedAt: new Date(), provider: 'claude', model: 'claude-sonnet-5-5', accountLabel: 'lender@example.com', failed: false, costMicros: 1200 })
+    .values([
+      { id: 'r1', source: 'cliproxy', occurredAt: new Date(hour + 60e3), receivedAt: new Date(), provider: 'claude', model: 'claude-sonnet-5-5', accountLabel: 'lender@example.com', failed: false, costMicros: 1200 },
+      { id: 'r2', source: 'cliproxy', occurredAt: new Date(hour + 90e3), receivedAt: new Date(), provider: 'claude', model: 'claude-sonnet-5-5', accountLabel: 'lender@example.com', clientKeyHash: hashKey(proxy.apiKeys[1]), failed: false, costMicros: 300 },
+    ])
     .run()
   store.setOwner('Jaren')
   const until = Date.now() + 3600e3
@@ -208,7 +212,7 @@ test('tells a peer what is shared right now: quota windows, hourly cost and when
         pool: 'claude',
         provider: 'claude',
         until,
-        accounts: [{ windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, resetAtMs: Date.parse('2099-01-01T00:00:00Z'), periodMs: 168 * 3600e3 }], cost: [[hour, 1200]] }],
+        accounts: [{ windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, resetAtMs: Date.parse('2099-01-01T00:00:00Z'), periodMs: 168 * 3600e3 }], cost: [[hour, 1500]], yourCost: [[hour, 300]] }],
       },
     ],
   })

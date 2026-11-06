@@ -17,7 +17,8 @@ export type SharingState = { sharing: Record<Pool, Sharing | null>; peers: Peer[
 export type Choice = { id: string; label: string; until: number | null }
 
 // What a lender reports about the pools it shares, for a borrower's Quota page.
-export type LentAccount = { windows: QuotaWindow[]; cost: [hour: number, micros: number][] }
+// yourCost: the part of cost the asking peer sent.
+export type LentAccount = { windows: QuotaWindow[]; cost: [hour: number, micros: number][]; yourCost: [hour: number, micros: number][] }
 export type LentPool = { pool: Pool; provider: string; until: number | null; accounts: LentAccount[] }
 export type LenderStatus = { owner: string; pools: LentPool[] }
 export type Lender = { gateway: string; owner?: string; pools: LentPool[]; error?: string }

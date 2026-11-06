@@ -22,12 +22,21 @@ const MIN_USED_TO_CALIBRATE = 5
 export const PLAN_SLACK = 1
 
 // lentUntil: unset for your own accounts; for a peer's, when sharing ends (null: until they stop it).
-export type PoolAccount = { cost: Map<number, number>; window: QuotaWindow & { resetAtMs: number }; lentUntil?: number | null }
+// peerCost: the part of cost from sharing, i.e. what a peer borrowed from your
+// account, or what you used of a peer's.
+export type PoolAccount = {
+  cost: Map<number, number>
+  window: QuotaWindow & { resetAtMs: number }
+  lentUntil?: number | null
+  peerCost?: Map<number, number>
+}
 export type PoolPoint = { t: number; pool: number }
 
 export type Pool = {
   left: number
   past: PoolPoint[]
+  // Where the pool would have stood without the sharing spend; null when there was none.
+  pastWithoutPeers: PoolPoint[] | null
   projected: PoolPoint[]
   plan: PoolPoint[]
   planNow: number
@@ -113,17 +122,29 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   const shared = calibrated.reduce((s, i) => s + spent[i], 0) / calibrated.reduce((s, i) => s + accounts[i].window.usedPercent, 0)
   const microsPerPercent = accounts.map((a, i) => (calibrated.includes(i) ? spent[i] / a.window.usedPercent : shared))
 
-  const levelAt = (i: number, t: number) => {
+  const peerUse = (i: number, from: number, to: number) => {
+    const peer = accounts[i].peerCost
+    return peer ? costBetween(peer, from, to) / microsPerPercent[i] : 0
+  }
+  const levelAt = (i: number, t: number, withoutPeers = false) => {
     const a = accounts[i]
-    const used = costBetween(a.cost, windowStart(a.window, t), t) / microsPerPercent[i]
+    const start = windowStart(a.window, t)
+    const used = costBetween(a.cost, start, t) / microsPerPercent[i] - (withoutPeers ? peerUse(i, start, t) : 0)
     return Math.min(100, Math.max(0, 100 - used))
   }
-  const poolAt = (t: number) => accounts.reduce((s, _, i) => s + levelAt(i, t), 0) / accounts.length
+  const poolAt = (t: number, withoutPeers = false) => accounts.reduce((s, _, i) => s + levelAt(i, t, withoutPeers), 0) / accounts.length
 
   const past: PoolPoint[] = []
   for (let t = floorHour(spanStart); t < now; t += HOUR) past.push({ t, pool: poolAt(t) })
   const left = accounts.reduce((s, a) => s + Math.max(0, 100 - a.window.usedPercent), 0) / accounts.length
   past.push({ t: now, pool: left })
+  const hadPeers = accounts.some((_, i) => peerUse(i, spanStart, now) > 0)
+  const leftWithoutPeers =
+    accounts.reduce((s, a, i) => s + Math.min(100, Math.max(0, 100 - a.window.usedPercent) + peerUse(i, windowStart(a.window, now), now)), 0) /
+    accounts.length
+  const pastWithoutPeers = hadPeers
+    ? [...past.slice(0, -1).map((p) => ({ t: p.t, pool: poolAt(p.t, true) })), { t: now, pool: leftWithoutPeers }]
+    : null
 
   const lentUntil = (a: PoolAccount) => (a.lentUntil === undefined || a.lentUntil === null ? Infinity : a.lentUntil)
   const usedRecently = accounts.reduce(
@@ -176,6 +197,7 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   return {
     left,
     past,
+    pastWithoutPeers,
     projected,
     plan,
     planNow: planAt(now),

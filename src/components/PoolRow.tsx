@@ -1,21 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatStamp } from '../lib/format'
 import { PLAN_SLACK, poolOf, type Pool, type PoolAccount, type PoolPoint } from '../lib/pool'
 import { PROVIDER_NAMES } from '../lib/quota'
 import type { Sharing } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 
+// Measures the element once it mounts, which can be after the first render.
 function useSize() {
-  const ref = useRef<HTMLDivElement>(null)
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   useEffect(() => {
-    const el = ref.current
     if (!el) return
     const observer = new ResizeObserver(() => setSize({ width: el.clientWidth, height: el.clientHeight }))
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
-  return [ref, size] as const
+  }, [el])
+  return [setEl, size] as const
 }
 
 const aroundHour = (t: number, now: number) => formatStamp(Math.round(t / 3600e3) * 3600e3, now)
@@ -34,6 +34,7 @@ export function PoolRow({
   accounts,
   borrowed,
   lending,
+  peerLabel,
   spanStart,
   spanEnd,
   now,
@@ -42,6 +43,7 @@ export function PoolRow({
   accounts: PoolAccount[]
   borrowed: { owner: string; until: number | null }[]
   lending: Sharing | null
+  peerLabel: string
   spanStart: number
   spanEnd: number
   now: number
@@ -112,7 +114,7 @@ export function PoolRow({
       </div>
       <div className="tl-track pool-track" ref={ref}>
         {nowPct > 0 && nowPct < 100 && <div className="tl-now tl-now-lane" style={{ left: `${nowPct}%` }} />}
-        {width > 0 && <PoolChart pool={pool} now={now} spanStart={spanStart} spanEnd={spanEnd} width={width} height={height} />}
+        {width > 0 && <PoolChart pool={pool} now={now} spanStart={spanStart} spanEnd={spanEnd} width={width} height={height} peerLabel={peerLabel} />}
         <div className="pool-key mono" aria-hidden="true">
           <span>
             <KeyLine className="pool-line" /> left
@@ -129,6 +131,14 @@ export function PoolRow({
             </svg>{' '}
             below plan
           </span>
+          {pool.pastWithoutPeers && (
+            <span>
+              <svg width="20" height="10">
+                <rect className="pool-peer" y="1" width="20" height="8" />
+              </svg>{' '}
+              {peerLabel}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -153,8 +163,10 @@ function PoolChart({
   spanEnd,
   width,
   height,
+  peerLabel,
 }: {
   pool: Pool
+  peerLabel: string
   now: number
   spanStart: number
   spanEnd: number
@@ -192,6 +204,11 @@ function PoolChart({
       {under.map((u, i) => (
         <polygon key={i} className="pool-under" points={u} />
       ))}
+      {pool.pastWithoutPeers && (
+        <polygon className="pool-peer" points={`${points(pool.pastWithoutPeers)} ${points(pool.past.toReversed())}`}>
+          <title>{peerLabel}</title>
+        </polygon>
+      )}
       <polyline className="pool-plan" points={points(pool.plan)} />
       <polyline className="pool-line" points={points(pool.past)} />
       <polyline className="pool-line future" points={points(pool.projected)} />
