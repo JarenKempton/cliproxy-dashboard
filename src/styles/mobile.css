@@ -356,7 +356,8 @@
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       'name switch'
-      'when when';
+      'when when'
+      'setup setup';
     gap: 10px 12px;
     padding: 12px;
   }
@@ -372,23 +373,33 @@
 
   .share-row > .share-when {
     grid-area: when;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
   }
 
-  .share-row > .share-when > :not(.share-floor) {
+  .share-row > .share-when:empty {
+    display: none;
+  }
+
+  .share-setup {
+    grid-area: setup;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0;
+  }
+
+  .share-setup > :not(.share-floor) {
     grid-column: 1 / -1;
   }
 
-  .share-row > .share-when select,
-  .share-row > .share-when .share-floor {
+  .share-setup select {
     width: 100%;
   }
 
-  .share-row .share-keep {
-    margin: 2px 0 -2px;
-    font-size: 12px;
+  .share-actions {
+    margin-left: 0;
+  }
+
+  .share-actions > .btn {
+    flex: 1;
   }
 
   .share-owner {
