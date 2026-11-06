@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import type { Db } from './db/client'
 import { poolPeers, poolSharing } from './db/schema'
 import { setKeyLabel } from './keys'
+import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
 
 export const POOLS = { claude: 'claude', codex: 'codex', grok: 'xai', muse: 'meta' } as const
@@ -63,15 +64,27 @@ export class SharingStore {
   }
 
   // Returns the peer's pool token. It is shown once and only its hash is kept.
+  async backupConfig() {
+    const res = await this.management('/config.yaml')
+    if (!res.ok) throw new Error(`couldn’t back up config.yaml before writing (HTTP ${res.status})`)
+    saveBackup(await res.text())
+  }
+
+  // The peer row comes first and is undone if the proxy refuses the key, so a
+  // key in the proxy always has a row to revoke it from.
   async addPeer(name: string): Promise<string> {
     const token = `pool-${randomBytes(24).toString('base64url')}`
     const proxyKey = `sk-pool-${randomBytes(24).toString('base64url')}`
     const res = await this.management('/api-keys')
     if (!res.ok) throw new Error(`the proxy refused to list keys (HTTP ${res.status})`)
     const { 'api-keys': existing = [] } = (await res.json()) as { 'api-keys'?: string[] }
+    await this.backupConfig()
+    const { id } = this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).returning({ id: poolPeers.id }).get()
     const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] })
-    if (!put.ok) throw new Error(`the proxy refused the new key (HTTP ${put.status})`)
-    this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).run()
+    if (!put.ok) {
+      this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+      throw new Error(`the proxy refused the new key (HTTP ${put.status})`)
+    }
     setKeyLabel(this.db, hashKey(proxyKey), `Pool: ${name}`)
     return token
   }
@@ -80,8 +93,9 @@ export class SharingStore {
   async removePeer(id: number) {
     const peer = this.db.select().from(poolPeers).where(eq(poolPeers.id, id)).get()
     if (!peer) return
+    const res = await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
+    if (!res.ok && res.status !== 404) throw new Error(`the proxy refused to remove the key (HTTP ${res.status})`)
     this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
-    await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
   }
 
   peerFor(token: string) {

@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../db/client'
 import { SharingStore } from '../sharing'
-import { poolGateway } from './sharing'
+import { poolGateway, poolSettings } from './sharing'
 
 type Account = { name: string; provider: string; unavailable?: boolean; models: string[] }
 
 const proxy = {
+  refuseDeletes: false,
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
   forwarded: [] as { path: string; auth: string | null; apiKey: string | null; body: string }[],
@@ -22,6 +23,7 @@ const upstream = Bun.serve({
     if (url.pathname === '/v0/management/api-keys') {
       if (req.method === 'GET') return Response.json({ 'api-keys': proxy.apiKeys })
       if (req.method === 'PUT') proxy.apiKeys = (await req.json()) as string[]
+      if (req.method === 'DELETE' && proxy.refuseDeletes) return new Response('down', { status: 500 })
       if (req.method === 'DELETE') proxy.apiKeys = proxy.apiKeys.filter((k) => k !== url.searchParams.get('value'))
       return Response.json({ status: 'ok' })
     }
@@ -118,3 +120,39 @@ test('stops sharing by itself when the chosen time passes', async () => {
   expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
   expect(store.sharing().claude).toBeNull()
 })
+
+test('forwards the body as checked, so a second "model" key can’t reach an unshared pool', async () => {
+  store.share('claude', null)
+  const res = await fetch(`${gateway.url.origin}/pool/v1/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': token },
+    body: '{"model":"gpt-5.5","model":"claude-sonnet-5-5","messages":[]}',
+  })
+  expect(res.status).toBe(200)
+  expect(proxy.forwarded[0].body).toBe('{"model":"claude-sonnet-5-5","messages":[]}')
+})
+
+test('someone guessing tokens doesn’t lock out a peer with a valid one', async () => {
+  store.share('claude', null)
+  for (let i = 0; i < 12; i++) await borrow('claude-sonnet-5-5', { 'x-api-key': `pool-guess-${i}` })
+  expect((await borrow('claude-sonnet-5-5', { 'x-api-key': 'pool-guess' })).status).toBe(429)
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+})
+
+test('settings writes must be JSON, so another site can’t post them', async () => {
+  const settings = poolSettings(store)
+  const res = await settings.request('/api/pool/peers', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{"name":"Mallory"}' })
+  expect(res.status).toBe(415)
+  expect(store.peers().map((p) => p.name)).not.toContain('Mallory')
+})
+
+test('a peer stays until the proxy has actually dropped its key', async () => {
+  await store.addPeer('Kept')
+  const [peer] = store.peers().filter((p) => p.name === 'Kept')
+  proxy.refuseDeletes = true
+  await expect(store.removePeer(peer.id)).rejects.toThrow('refused to remove')
+  expect(store.peers().map((p) => p.name)).toContain('Kept')
+  proxy.refuseDeletes = false
+  await store.removePeer(peer.id)
+})
+
