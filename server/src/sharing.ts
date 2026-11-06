@@ -213,16 +213,18 @@ export class SharingStore {
     this.lastWindows.clear()
   }
 
-  // An account's quota windows, or its last good reading from the past 15
-  // minutes when a read fails (a provider's usage endpoint rate-limits), so a
-  // brief outage doesn't cut off lending; null when neither exists.
+  // An account's quota windows: a reading under a minute old as is, else a
+  // fresh read, else (the provider's usage endpoint rate-limits) the last good
+  // reading from the past 15 minutes so a brief outage doesn't cut off
+  // lending; null when there's none. Busy borrowing reads once a minute at most.
   private async windowsOf(f: AuthFile) {
+    const last = this.lastWindows.get(f.auth_index)
+    if (last && Date.now() - last.at < STATUS_TTL_MS) return last.windows
     const quota = await fetchQuota(f).catch(() => null)
     if (quota?.windows.length) {
       this.lastWindows.set(f.auth_index, { at: Date.now(), windows: quota.windows })
       return quota.windows
     }
-    const last = this.lastWindows.get(f.auth_index)
     return last && Date.now() - last.at < LAST_READING_MS ? last.windows : null
   }
 

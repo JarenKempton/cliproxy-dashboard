@@ -14,6 +14,7 @@ type Account = { name: string; auth_index: string; email: string; provider: stri
 const proxy = {
   refuseDeletes: false,
   quotaDown: false,
+  quotaReads: 0,
   unreadable: [] as string[],
   upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
   apiKeys: ['sk-own-machine'],
@@ -37,6 +38,7 @@ const upstream = Bun.serve({
     if (url.pathname === '/v0/management/claude-api-key') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
     if (url.pathname === '/v0/management/api-call') {
       const call = (await req.json()) as { url: string; authIndex: string }
+      proxy.quotaReads++
       if (proxy.quotaDown || proxy.unreadable.includes(call.authIndex)) return Response.json({ status_code: 429, header: { 'Retry-After': ['60'] }, body: '{}' })
       const usage = { limits: [{ kind: 'weekly_all', percent: 40, resets_at: '2099-01-01T00:00:00Z' }] }
       return Response.json({ status_code: 200, body: call.url.endsWith('/usage') ? JSON.stringify(usage) : '{}' })
@@ -276,5 +278,13 @@ test('a brief quota outage uses the last good reading instead of cutting lending
   proxy.quotaDown = true
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
   proxy.quotaDown = false
+})
+
+test('busy borrowing reads each account’s quota at most once a minute', async () => {
+  store.share('claude', null)
+  store.setFloor('claude', 'Weekly', 30)
+  proxy.quotaReads = 0
+  for (let i = 0; i < 5; i++) expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+  expect(proxy.quotaReads).toBe(1)
 })
 
