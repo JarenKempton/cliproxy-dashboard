@@ -5,7 +5,8 @@
 //   POST /api/import                                     usage-only history; requires a proxy API key
 //   POST /history/push                                   raw transcripts (see history.ts); requires a proxy API key
 //   ALL  /muse-code/*, /v1/*                             Muse relay (see muse-relay.ts); proxy key required
-//   ALL  /pool/v1/*                                      pool gateway (see sharing.ts); pool token required
+//   ALL  /pool/v1/*, GET /pool/status                    pool gateway (see sharing.ts); pool token required
+//   GET  /pool/invite/:code                              a peer's one-time invite
 //
 // Imports are attributed to the sender's LAN IP.
 

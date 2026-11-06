@@ -71,7 +71,9 @@ export const setSharing = (pool: Pool, until: number | null | false) => call<Pic
 export const getLenders = () => call<Lender[]>('GET', '/borrowed')
 export const setFloor = (pool: Pool, window: string, percent: number) => call<Pick<SharingState, 'floors'>>('PUT', '/floor', { pool, window, percent })
 export const setOwner = (owner: string) => call<{ owner: string }>('PUT', '/owner', { owner })
-export const addPeer = (name: string) => call<{ token: string }>('POST', '/peers', { name })
+// code: a one-time invite for <this dashboard>/pool/invite/<code>, valid until expires.
+export const addPeer = (name: string) => call<{ token: string; code: string; expires: number }>('POST', '/peers', { name })
+export const joinPeer = (link: string) => call<{ owner: string; gateway: string }>('POST', '/join', { link })
 export const removePeer = (id: number) => call<{ ok: true }>('DELETE', `/peers/${id}`)
 
 // The proxy config a peer adds so its proxy falls back to this one.

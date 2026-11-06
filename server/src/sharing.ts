@@ -13,6 +13,8 @@ import { setKeyLabel } from './keys'
 import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
 import { accountHours } from './usage/summary'
+import { saveBackup } from './http/management'
+import { Invites, joinPeer } from './pool-invites'
 
 export const POOLS = { claude: 'claude', codex: 'codex', grok: 'xai', muse: 'meta' } as const
 export type Pool = keyof typeof POOLS
@@ -39,6 +41,7 @@ type UpstreamKey = { 'api-key'?: string; 'base-url'?: string; 'api-key-entries'?
 
 export class SharingStore {
   private lastWindows = new Map<string, { at: number; windows: QuotaWindow[] }>()
+  readonly invites = new Invites()
   private status = new Map<number, { at: number; body: LenderStatus }>()
 
   constructor(
@@ -117,6 +120,29 @@ export class SharingStore {
     const res = await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
     if (!res.ok && res.status !== 404) throw new Error(`the proxy refused to remove the key (HTTP ${res.status})`)
     this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+  }
+
+  // Model ids of this proxy's Grok and Muse accounts, which a borrower's proxy
+  // must list by name to route them here.
+  async lendableModels(): Promise<string[]> {
+    const res = await this.management('/auth-files')
+    if (!res.ok) return []
+    const files = ((await res.json()) as { files?: AuthEntry[] }).files ?? []
+    const models = new Set<string>()
+    for (const f of files.filter((file) => [POOLS.grok, POOLS.muse].includes((file.provider ?? file.type) as 'xai' | 'meta') && !file.disabled)) {
+      const list = await this.management(`/auth-files/models?name=${encodeURIComponent(f.name)}`)
+      if (list.ok) for (const m of ((await list.json()) as { models?: { id: string }[] }).models ?? []) models.add(m.id)
+    }
+    return [...models]
+  }
+
+  // Adds a lender from its invite link to this proxy's config.
+  join(link: string) {
+    return joinPeer(link, (path, init) => this.management(path, init), async () => {
+      const res = await this.management('/config.yaml')
+      if (!res.ok) throw new Error(`Couldn’t back up config.yaml before writing (HTTP ${res.status})`)
+      saveBackup(await res.text())
+    })
   }
 
   peerFor(token: string) {

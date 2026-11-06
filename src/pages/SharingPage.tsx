@@ -4,7 +4,24 @@ import { ProviderMark } from '../components/ProviderMark'
 import { ConfirmDialog, copyText, PageHead, Switch, toast } from '../components/ui'
 import { formatRelative, formatStamp } from '../lib/format'
 import { providerOf } from '../lib/quota'
-import { addPeer, getSharing, peerConfig, POOLS, removePeer, setFloor, setOwner, setSharing, sharingChoices, type Peer, type Pool, type SharingState } from '../lib/sharing'
+import {
+  addPeer,
+  getLenders,
+  getSharing,
+  joinPeer,
+  peerConfig,
+  POOLS,
+  removePeer,
+  setFloor,
+  setOwner,
+  setSharing,
+  sharingChoices,
+  type Lender,
+  type Peer,
+  type Pool,
+  type SharingState,
+} from '../lib/sharing'
+import { lenderName } from '../lib/lenders'
 import { useStore } from '../lib/store'
 
 const FLOORS = [0, 10, 20, 30, 40, 50, 60, 70]
@@ -15,7 +32,15 @@ export function SharingPage() {
   const [state, setState] = useState<SharingState | null>(null)
   const [gateway, setGateway] = useState<string | null>(null)
   const [name, setName] = useState('')
-  const [issued, setIssued] = useState<{ name: string; token: string } | null>(null)
+  const [issued, setIssued] = useState<{
+    name: string
+    token: string
+    code: string
+    expires: number
+  } | null>(null)
+  const [byHand, setByHand] = useState(false)
+  const [link, setLink] = useState('')
+  const [lenders, setLenders] = useState<Lender[] | null>(null)
   const [removing, setRemoving] = useState<Peer | null>(null)
   const [owner, setOwnerName] = useState('')
   const [picked, setPicked] = useState<Partial<Record<Pool, string>>>({})
@@ -47,17 +72,29 @@ export function SharingPage() {
   )
 
   const saveOwner = () => {
-    if (state && owner.trim() !== state.owner) setOwner(owner).then((r) => setState({ ...state, owner: r.owner })).catch((err) => toast(`Couldn’t save name: ${err.message}`))
+    if (state && owner.trim() !== state.owner)
+      setOwner(owner)
+        .then((r) => setState({ ...state, owner: r.owner }))
+        .catch((err) => toast(`Couldn’t save name: ${err.message}`))
   }
+
+  const loadLenders = useCallback(
+    () =>
+      getLenders()
+        .then(setLenders)
+        .catch(() => setLenders([])),
+    [],
+  )
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
+    loadLenders()
     fetch('/connect/networks')
       .then((r) => r.json() as Promise<Networks>)
       .then((n) => setGateway(n.lan?.dashboard ?? n.tailnet?.dashboard ?? null))
       .catch(() => setGateway(null))
-  }, [load])
+  }, [load, loadLenders])
 
   const share = async (pool: Pool, until: number | null | false) => {
     if (!state) return
@@ -83,12 +120,23 @@ export function SharingPage() {
     const peer = name.trim()
     if (!peer) return
     try {
-      const { token } = await addPeer(peer)
-      setIssued({ name: peer, token })
+      setIssued({ name: peer, ...(await addPeer(peer)) })
+      setByHand(false)
       setName('')
       await load()
     } catch (err) {
       toast(`Couldn’t add peer: ${(err as Error).message}`)
+    }
+  }
+
+  const join = async () => {
+    try {
+      const { owner, gateway: at } = await joinPeer(link)
+      toast(`Joined ${owner || new URL(at).hostname}. Your proxy now falls back to their shared pools.`)
+      setLink('')
+      await loadLenders()
+    } catch (err) {
+      toast(`Couldn’t join: ${(err as Error).message}`)
     }
   }
 
@@ -139,7 +187,9 @@ export function SharingPage() {
               <span className="share-when">
                 {current ? (
                   <span className="mono">
-                    {current.until === null ? 'Shared until you turn it off' : `Shared until ${formatStamp(current.until, now)} · ${formatRelative(current.until, now).replace('in ', '')} left`}
+                    {current.until === null
+                      ? 'Shared until you turn it off'
+                      : `Shared until ${formatStamp(current.until, now)} · ${formatRelative(current.until, now).replace('in ', '')} left`}
                   </span>
                 ) : (
                   <select
@@ -192,7 +242,9 @@ export function SharingPage() {
           {state?.peers.map((peer) => (
             <div key={peer.id} className="krow">
               <span>{peer.name}</span>
-              <span className="mono faint">added {formatRelative(peer.createdAt)} · usage under key “Pool: {peer.name}”</span>
+              <span className="mono faint">
+                added {formatRelative(peer.createdAt)} · usage under key “Pool: {peer.name}”
+              </span>
               <button className="btn btn-ghost btn-icon" aria-label={`Remove ${peer.name}`} onClick={() => setRemoving(peer)}>
                 <Trash2 size={14} />
               </button>
@@ -217,15 +269,76 @@ export function SharingPage() {
       {issued && (
         <section className="section">
           <div className="section-head">
-            <h2>Config for {issued.name}’s proxy</h2>
-            <button className="btn btn-ghost" onClick={() => copyText(peerConfig(gateway ?? '<this dashboard>', issued.token), 'Config copied')}>
-              <Copy size={14} /> Copy
+            <h2>Invite for {issued.name}</h2>
+          </div>
+          <div className="panel invite">
+            <span className="mono invite-link">{`${gateway ?? '<this dashboard>'}/pool/invite/${issued.code}`}</span>
+            <button className="btn" onClick={() => copyText(`${gateway ?? '<this dashboard>'}/pool/invite/${issued.code}`, 'Invite link copied')}>
+              <Copy size={14} /> Copy link
             </button>
           </div>
-          <p className="mono faint">Shown once. Their proxy uses yours only after its own accounts are spent.</p>
-          <pre className="panel mono peer-config">{peerConfig(gateway ?? '<this dashboard>', issued.token)}</pre>
+          <p className="mono faint">
+            Send this to {issued.name}. They paste it under “Join a peer” on their Sharing page. Works once, until {formatStamp(issued.expires, now)}.{' '}
+            <button className="btn-link" onClick={() => setByHand(!byHand)}>
+              {byHand ? 'Hide' : 'Set up by hand instead'}
+            </button>
+          </p>
+          {byHand && (
+            <>
+              <div className="section-head">
+                <span className="faint">Add to {issued.name}’s proxy config.yaml</span>
+                <button className="btn btn-ghost" onClick={() => copyText(peerConfig(gateway ?? '<this dashboard>', issued.token), 'Config copied')}>
+                  <Copy size={14} /> Copy
+                </button>
+              </div>
+              <pre className="panel mono peer-config">{peerConfig(gateway ?? '<this dashboard>', issued.token)}</pre>
+            </>
+          )}
         </section>
       )}
+
+      <section className="section">
+        <div className="section-head">
+          <h2>Join a peer</h2>
+        </div>
+        <div className="panel invite">
+          <input
+            className="input mono invite-input"
+            placeholder="Paste an invite link"
+            value={link}
+            onChange={(e) => setLink(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && link.trim() && join()}
+          />
+          <button className="btn btn-primary" onClick={join} disabled={!link.trim()}>
+            Join
+          </button>
+        </div>
+        {lenders && lenders.length > 0 && (
+          <>
+            <p className="mono faint lenders">Borrowing from</p>
+            <div className="panel klist">
+              {lenders.map((l) => (
+                <div key={l.gateway} className="krow">
+                  <span>{lenderName(l)}</span>
+                  <span className="mono faint">
+                    {l.error
+                      ? `can’t reach them (${l.error})`
+                      : l.pools.length
+                        ? l.pools
+                            .map(
+                              (p) =>
+                                `${POOLS.find((x) => x.id === p.pool)?.label ?? p.pool} ${p.until === null ? 'until they stop' : `until ${formatStamp(p.until, now)}`}`,
+                            )
+                            .join(' · ')
+                        : 'not sharing anything right now'}
+                  </span>
+                  <span />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
 
       <ConfirmDialog
         open={!!removing}

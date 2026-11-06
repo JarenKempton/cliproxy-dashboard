@@ -17,6 +17,7 @@ const proxy = {
   quotaReads: 0,
   unreadable: [] as string[],
   upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
+  lists: {} as Record<string, unknown[]>,
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
   forwarded: [] as { path: string; auth: string | null; apiKey: string | null; body: string }[],
@@ -35,7 +36,14 @@ const upstream = Bun.serve({
       return Response.json({ status: 'ok' })
     }
     if (url.pathname === '/v0/management/auth-files') return Response.json({ files: proxy.accounts })
-    if (url.pathname === '/v0/management/claude-api-key') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
+    if (url.pathname === '/v0/management/claude-api-key' && req.method === 'GET') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
+    const list = url.pathname.match(/^\/v0\/management\/(claude-api-key|codex-api-key|openai-compatibility)$/)?.[1]
+    if (list && req.method === 'PUT') {
+      proxy.lists[list] = (await req.json()) as unknown[]
+      return Response.json({ status: 'ok' })
+    }
+    if (list) return Response.json({ [list]: proxy.lists[list] ?? [] })
+    if (url.pathname === '/v0/management/config.yaml') return new Response('api-keys: []\n')
     if (url.pathname === '/v0/management/api-call') {
       const call = (await req.json()) as { url: string; authIndex: string }
       if (call.url.endsWith('/usage')) proxy.quotaReads++
@@ -294,5 +302,28 @@ test('busy borrowing reads each account’s quota at most once a minute', async 
   proxy.quotaReads = 0
   for (let i = 0; i < 5; i++) expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
   expect(proxy.quotaReads).toBe(1)
+})
+
+test('an invite link works once, and joining adds the lender as fallback upstreams', async () => {
+  proxy.upstreamKeys = []
+  proxy.accounts.push({ name: 'grok-1.json', auth_index: 'g1', email: 'lender@example.com', provider: 'xai', models: ['grok-4'] })
+  store.setOwner('Jaren')
+  const { code } = store.invites.mint(token)
+  const link = `${gateway.url.origin}/pool/invite/${code}`
+
+  expect(await store.join(link)).toEqual({ owner: 'Jaren', gateway: gateway.url.origin })
+  const fallback = { priority: -1, 'disable-cooling': true }
+  expect(proxy.lists['claude-api-key']).toEqual([{ 'api-key': token, 'base-url': `${gateway.url.origin}/pool`, ...fallback }])
+  expect(proxy.lists['codex-api-key']).toEqual([{ 'api-key': token, 'base-url': `${gateway.url.origin}/pool/v1`, ...fallback }])
+  expect(proxy.lists['openai-compatibility']).toEqual([
+    { name: 'pool-jaren', 'base-url': `${gateway.url.origin}/pool/v1`, 'api-key-entries': [{ 'api-key': token }], models: [{ name: 'grok-4', alias: 'grok-4' }], ...fallback },
+  ])
+
+  await expect(store.join(link)).rejects.toThrow('already used or has expired')
+})
+
+test('an invite expires after 15 minutes', () => {
+  const { code } = store.invites.mint('pool-x', 0)
+  expect(store.invites.claim(code, 15 * 60e3 + 1)).toBeNull()
 })
 

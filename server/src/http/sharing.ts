@@ -1,5 +1,6 @@
 // The pool gateway, where a peer's proxy borrows this proxy's accounts:
 //
+//   GET /pool/invite/:code  one-time: the pool token for an invited peer
 //   GET /pool/status pool token required; the pools shared right now, with
 //                    their accounts' quota windows and hourly cost
 //   ALL /pool/v1/*   pool token required; the request's model must belong to a
@@ -17,8 +18,9 @@
 //   PUT    /api/pool/floor            { pool, window, percent }: share of a quota window kept for yourself (0 clears)
 //   GET    /api/pool/borrowed         peers this proxy borrows from, and what they share
 //   PUT    /api/pool/sharing          { pool, until }: a time, null (until turned off) or false (stop)
-//   POST   /api/pool/peers            { name } -> { token }, shown once
+//   POST   /api/pool/peers            { name } -> { token, code, expires }: token and invite code, shown once
 //   DELETE /api/pool/peers/:id
+//   POST   /api/pool/join             { link }: claim a lender's invite into this proxy's config
 
 import { Hono, type Context } from 'hono'
 import { getBunServer, getConnInfo } from 'hono/bun'
@@ -67,6 +69,18 @@ export function poolGateway(target: string, pool: SharingStore) {
     if (peer) return { peer }
     return tooManyFailures(c) ? { refused: c.json({ error: 'too many attempts' }, 429) } : { refused: c.json({ error: 'a pool token is required' }, 401) }
   }
+
+  app.get('/pool/invite/:code', async (c) => {
+    const now = Date.now()
+    while (failures.length && failures[0] < now - 60e3) failures.shift()
+    if (failures.length >= MAX_FAILURES_PER_MINUTE) return c.json({ error: 'too many attempts' }, 429)
+    const token = pool.invites.claim(c.req.param('code'))
+    if (!token) {
+      failures.push(now)
+      return c.json({ error: 'unknown, used or expired invite' }, 404)
+    }
+    return c.json({ owner: pool.owner(), token, models: await pool.lendableModels() })
+  })
 
   app.get('/pool/status', async (c) => {
     const { peer, refused } = peerOf(c)
@@ -156,9 +170,20 @@ export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {
     if (!trimmed) return c.json({ error: 'name is required' }, 400)
     if (pool.peers().some((p) => p.name === trimmed)) return c.json({ error: `${trimmed} is already a peer` }, 409)
     try {
-      return c.json({ token: await pool.addPeer(trimmed) })
+      const token = await pool.addPeer(trimmed)
+      return c.json({ token, ...pool.invites.mint(token) })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 502)
+    }
+  })
+
+  app.post('/join', async (c) => {
+    const { link } = await c.req.json<{ link?: string }>()
+    if (!link?.trim()) return c.json({ error: 'link is required' }, 400)
+    try {
+      return c.json(await pool.join(link))
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
     }
   })
 
