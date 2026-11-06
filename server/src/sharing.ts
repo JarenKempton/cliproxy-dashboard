@@ -4,7 +4,8 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { eq, like } from 'drizzle-orm'
 import { listAuthFiles } from '../../src/lib/api'
-import { fetchQuota, providerOf } from '../../src/lib/quota'
+import type { AuthFile } from '../../src/lib/api'
+import { fetchQuota, providerOf, type QuotaWindow } from '../../src/lib/quota'
 import type { Floors, Lender, LenderStatus, LentPool } from '../../src/lib/sharing'
 import type { Db } from './db/client'
 import { keyLabels, poolPeers, poolSharing, settings } from './db/schema'
@@ -30,12 +31,14 @@ export function peerKeyHashes(db: Db) {
   return db.select({ hash: keyLabels.keyHash }).from(keyLabels).where(like(keyLabels.label, `${PEER_LABEL}%`)).all().map((r) => r.hash)
 }
 const STATUS_TTL_MS = 60e3
+const LAST_READING_MS = 15 * 60e3
 const COST_HISTORY_MS = 14 * 86400e3
 const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
 
 type UpstreamKey = { 'api-key'?: string; 'base-url'?: string; 'api-key-entries'?: { 'api-key'?: string }[] }
 
 export class SharingStore {
+  private lastWindows = new Map<string, { at: number; windows: QuotaWindow[] }>()
   private status = new Map<number, { at: number; body: LenderStatus }>()
 
   constructor(
@@ -204,8 +207,23 @@ export class SharingStore {
     return body
   }
 
+  // Drops cached status and quota readings, after a setting changes.
   forgetStatus() {
     this.status.clear()
+    this.lastWindows.clear()
+  }
+
+  // An account's quota windows, or its last good reading from the past 15
+  // minutes when a read fails (a provider's usage endpoint rate-limits), so a
+  // brief outage doesn't cut off lending; null when neither exists.
+  private async windowsOf(f: AuthFile) {
+    const quota = await fetchQuota(f).catch(() => null)
+    if (quota?.windows.length) {
+      this.lastWindows.set(f.auth_index, { at: Date.now(), windows: quota.windows })
+      return quota.windows
+    }
+    const last = this.lastWindows.get(f.auth_index)
+    return last && Date.now() - last.at < LAST_READING_MS ? last.windows : null
   }
 
   // Whether every window with a floor has more left than it, averaged over
@@ -218,11 +236,11 @@ export class SharingStore {
     const files = (await listAuthFiles()).filter((f) => providerOf(f) === POOLS[pool] && !f.disabled && !f.unavailable)
     const left = new Map<string, number[]>()
     for (const f of files) {
-      const quota = await fetchQuota(f).catch(() => null)
+      const windows = await this.windowsOf(f)
       // An account that can't be read could be the one nearly spent, so the
       // kept share can't be checked: refuse.
-      if (!quota?.windows.length) return false
-      for (const w of quota.windows) left.set(w.label, [...(left.get(w.label) ?? []), 100 - w.usedPercent])
+      if (!windows) return false
+      for (const w of windows) left.set(w.label, [...(left.get(w.label) ?? []), 100 - w.usedPercent])
     }
     // A window no account reports is one this pool doesn't have.
     if (!left.size) return false

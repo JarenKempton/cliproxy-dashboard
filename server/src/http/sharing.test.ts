@@ -269,3 +269,12 @@ test('refuses when any working account’s quota can’t be read, since it could
   expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
 })
 
+test('a brief quota outage uses the last good reading instead of cutting lending off', async () => {
+  store.share('claude', null)
+  store.setFloor('claude', 'Weekly', 30)
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+  proxy.quotaDown = true
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+  proxy.quotaDown = false
+})
+
