@@ -38,7 +38,7 @@ const upstream = Bun.serve({
     if (url.pathname === '/v0/management/claude-api-key') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
     if (url.pathname === '/v0/management/api-call') {
       const call = (await req.json()) as { url: string; authIndex: string }
-      proxy.quotaReads++
+      if (call.url.endsWith('/usage')) proxy.quotaReads++
       if (proxy.quotaDown || proxy.unreadable.includes(call.authIndex)) return Response.json({ status_code: 429, header: { 'Retry-After': ['60'] }, body: '{}' })
       const usage = { limits: [{ kind: 'weekly_all', percent: 40, resets_at: '2099-01-01T00:00:00Z' }] }
       return Response.json({ status_code: 200, body: call.url.endsWith('/usage') ? JSON.stringify(usage) : '{}' })
