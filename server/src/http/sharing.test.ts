@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../db/client'
-import { Sharing } from '../sharing'
+import { SharingStore } from '../sharing'
 import { poolGateway } from './sharing'
 
 type Account = { name: string; provider: string; unavailable?: boolean; models: string[] }
@@ -36,7 +36,7 @@ const upstream = Bun.serve({
 })
 
 const db = openDb(join(mkdtempSync(join(tmpdir(), 'pool-')), 'usage.db'))
-const store = new Sharing(db, upstream.url.origin, 'management')
+const store = new SharingStore(db, upstream.url.origin, 'management')
 const gateway = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: poolGateway(upstream.url.origin, store).fetch })
 const token = await store.addPeer('Curt')
 
@@ -46,7 +46,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  for (const p of ['claude', 'codex', 'grok', 'muse'] as const) store.setShared(p, false)
+  for (const p of ['claude', 'codex', 'grok', 'muse'] as const) store.stopSharing(p)
   proxy.accounts = [
     { name: 'claude-1.json', provider: 'claude', models: ['claude-sonnet-5-5'] },
     { name: 'codex-1.json', provider: 'codex', models: ['gpt-5.5'] },
@@ -74,7 +74,7 @@ test('refuses everything while nothing is shared, without reaching the proxy', a
 })
 
 test('forwards a shared pool’s model with the peer’s proxy key in place of the pool token', async () => {
-  store.setShared('claude', true)
+  store.share('claude', null)
   const res = await borrow('claude-sonnet-5-5')
   expect(res.status).toBe(200)
   expect(proxy.forwarded).toEqual([
@@ -83,30 +83,38 @@ test('forwards a shared pool’s model with the peer’s proxy key in place of t
 })
 
 test('refuses a model from a pool that is not shared', async () => {
-  store.setShared('claude', true)
+  store.share('claude', null)
   expect((await borrow('gpt-5.5', { authorization: `Bearer ${token}` })).status).toBe(403)
   expect(proxy.forwarded).toHaveLength(0)
 })
 
 test('refuses when the shared pool has no working account here, so requests cannot loop back', async () => {
-  store.setShared('claude', true)
+  store.share('claude', null)
   proxy.accounts[0].unavailable = true
   expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
   expect(proxy.forwarded).toHaveLength(0)
 })
 
 test('refuses a proxy key or an unknown token', async () => {
-  store.setShared('claude', true)
+  store.share('claude', null)
   expect((await borrow('claude-sonnet-5-5', { 'x-api-key': 'sk-own-machine' })).status).toBe(401)
   expect((await borrow('claude-sonnet-5-5', { 'x-api-key': 'pool-guess' })).status).toBe(401)
   expect(proxy.forwarded).toHaveLength(0)
 })
 
 test('removing a peer revokes its token and its proxy key', async () => {
-  store.setShared('claude', true)
+  store.share('claude', null)
   const other = await store.addPeer('Guest')
   const [peer] = store.peers().filter((p) => p.name === 'Guest')
   await store.removePeer(peer.id)
   expect((await borrow('claude-sonnet-5-5', { 'x-api-key': other })).status).toBe(401)
   expect(proxy.apiKeys).toHaveLength(2)
+})
+
+test('stops sharing by itself when the chosen time passes', async () => {
+  store.share('claude', Date.now() + 150)
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+  await Bun.sleep(200)
+  expect((await borrow('claude-sonnet-5-5')).status).toBe(403)
+  expect(store.sharing().claude).toBeNull()
 })

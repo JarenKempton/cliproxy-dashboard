@@ -10,5 +10,5 @@ CREATE UNIQUE INDEX `pool_peers_name_unique` ON `pool_peers` (`name`);--> statem
 CREATE UNIQUE INDEX `pool_peers_token_hash_unique` ON `pool_peers` (`token_hash`);--> statement-breakpoint
 CREATE TABLE `pool_sharing` (
 	`pool` text PRIMARY KEY NOT NULL,
-	`shared` integer NOT NULL
+	`until` integer
 );

@@ -16,7 +16,7 @@ import { MANAGEMENT_PREFIX, managementApp } from './http/management'
 import { startLanListener } from './http/lan'
 import { museRelay } from './http/muse-relay'
 import { poolGateway, poolSettings } from './http/sharing'
-import { Sharing } from './sharing'
+import { SharingStore } from './sharing'
 import { ProxyKeys } from './proxy-keys'
 import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
@@ -40,7 +40,7 @@ const tailnet = new Tailnet(db)
 tailnet.start()
 
 const keys = new ProxyKeys(env.proxyUrl, env.managementKey)
-const pool = new Sharing(db, env.proxyUrl, env.managementKey)
+const pool = new SharingStore(db, env.proxyUrl, env.managementKey)
 const connect = {
   db,
   keys,

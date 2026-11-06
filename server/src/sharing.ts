@@ -13,11 +13,12 @@ export type Pool = keyof typeof POOLS
 export const isPool = (p: unknown): p is Pool => typeof p === 'string' && p in POOLS
 
 export type Peer = { id: number; name: string; createdAt: number }
+export type Sharing = { until: number | null }
 type AuthEntry = { name: string; provider?: string; type?: string; disabled?: boolean; unavailable?: boolean }
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 
-export class Sharing {
+export class SharingStore {
   constructor(
     private db: Db,
     private proxyUrl: string,
@@ -32,13 +33,25 @@ export class Sharing {
     })
   }
 
-  sharing(): Record<Pool, boolean> {
-    const rows = new Map(this.db.select().from(poolSharing).all().map((r) => [r.pool, r.shared]))
-    return Object.fromEntries(Object.keys(POOLS).map((p) => [p, rows.get(p) === true])) as Record<Pool, boolean>
+  // Each pool's sharing right now: null when not shared (or expired), else
+  // when it ends, with null meaning until turned off.
+  sharing(now = Date.now()): Record<Pool, Sharing | null> {
+    const rows = new Map(this.db.select().from(poolSharing).all().map((r) => [r.pool, r.until?.getTime() ?? null]))
+    return Object.fromEntries(
+      Object.keys(POOLS).map((p) => {
+        const until = rows.get(p)
+        return [p, until === undefined || (until !== null && until <= now) ? null : { until }]
+      }),
+    ) as Record<Pool, Sharing | null>
   }
 
-  setShared(pool: Pool, shared: boolean) {
-    this.db.insert(poolSharing).values({ pool, shared }).onConflictDoUpdate({ target: poolSharing.pool, set: { shared } }).run()
+  share(pool: Pool, until: number | null) {
+    const value = until === null ? null : new Date(until)
+    this.db.insert(poolSharing).values({ pool, until: value }).onConflictDoUpdate({ target: poolSharing.pool, set: { until: value } }).run()
+  }
+
+  stopSharing(pool: Pool) {
+    this.db.delete(poolSharing).where(eq(poolSharing.pool, pool)).run()
   }
 
   peers(): Peer[] {

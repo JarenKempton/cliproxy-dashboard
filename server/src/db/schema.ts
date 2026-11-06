@@ -127,8 +127,9 @@ export const poolPeers = sqliteTable('pool_peers', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
-// Which pools ('claude', 'codex', 'grok', 'muse') are lent out. Absent means not shared.
+// Which pools ('claude', 'codex', 'grok', 'muse') are lent out, and until
+// when. Absent means not shared; a null `until` means until turned off.
 export const poolSharing = sqliteTable('pool_sharing', {
   pool: text('pool').primaryKey(),
-  shared: integer('shared', { mode: 'boolean' }).notNull(),
+  until: integer('until', { mode: 'timestamp_ms' }),
 })

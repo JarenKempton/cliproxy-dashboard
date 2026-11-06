@@ -2,8 +2,10 @@ import { Copy, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ProviderMark } from '../components/ProviderMark'
 import { ConfirmDialog, copyText, PageHead, Switch, toast } from '../components/ui'
-import { formatRelative } from '../lib/format'
-import { addPeer, getSharing, peerConfig, POOLS, removePeer, setShared, type Peer, type SharingState } from '../lib/sharing'
+import { formatRelative, formatStamp } from '../lib/format'
+import { providerOf } from '../lib/quota'
+import { addPeer, getSharing, peerConfig, POOLS, removePeer, setSharing, sharingChoices, type Peer, type Pool, type SharingState } from '../lib/sharing'
+import { useStore } from '../lib/store'
 
 type Networks = Record<'tailnet' | 'lan', { dashboard: string } | null>
 
@@ -13,6 +15,14 @@ export function SharingPage() {
   const [name, setName] = useState('')
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null)
   const [removing, setRemoving] = useState<Peer | null>(null)
+  const [picked, setPicked] = useState<Partial<Record<Pool, string>>>({})
+  const { files, quotas, now } = useStore()
+
+  const choicesFor = (provider: string) =>
+    sharingChoices(
+      files.filter((f) => !f.disabled && providerOf(f) === provider).flatMap((f) => quotas[f.auth_index]?.quota?.windows ?? []),
+      now,
+    )
 
   const load = useCallback(() => getSharing().then(setState).catch((err) => toast(`Couldn’t load sharing: ${err.message}`)), [])
 
@@ -25,10 +35,10 @@ export function SharingPage() {
       .catch(() => setGateway(null))
   }, [load])
 
-  const toggle = async (pool: (typeof POOLS)[number]['id']) => {
+  const share = async (pool: Pool, until: number | null | false) => {
     if (!state) return
     try {
-      const { sharing } = await setShared(pool, !state.sharing[pool])
+      const { sharing } = await setSharing(pool, until)
       setState({ ...state, sharing })
     } catch (err) {
       toast(`Couldn’t change sharing: ${(err as Error).message}`)
@@ -69,16 +79,41 @@ export function SharingPage() {
       <PageHead title="Sharing" sub="Lend a pool to peers’ proxies when they run out. Off unless you turn it on." />
 
       <div className="panel klist">
-        {POOLS.map((p) => (
-          <div key={p.id} className="krow">
-            <span className="krow-key">
-              <ProviderMark of={p.id} />
-              {p.label}
-            </span>
-            <span className="mono faint">{state?.sharing[p.id] ? 'Shared with peers' : 'Not shared'}</span>
-            <Switch on={!!state?.sharing[p.id]} label={`Share ${p.label}`} disabled={!state} onChange={() => toggle(p.id)} />
-          </div>
-        ))}
+        {POOLS.map((p) => {
+          const choices = choicesFor(p.provider)
+          const choice = choices.find((c) => c.id === picked[p.id]) ?? choices[0]
+          const shared = state?.sharing[p.id]
+          const current = shared && (shared.until === null || shared.until > now) ? shared : null
+          return (
+            <div key={p.id} className="krow">
+              <span className="krow-key">
+                <ProviderMark of={p.id} />
+                {p.label}
+              </span>
+              <span className="share-when">
+                {current ? (
+                  <span className="mono">
+                    {current.until === null ? 'Shared until you turn it off' : `Shared until ${formatStamp(current.until, now)} · ${formatRelative(current.until, now).replace('in ', '')} left`}
+                  </span>
+                ) : (
+                  <select
+                    className="input"
+                    aria-label={`How long to share ${p.label}`}
+                    value={choice.id}
+                    onChange={(e) => setPicked({ ...picked, [p.id]: e.target.value })}
+                  >
+                    {choices.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </span>
+              <Switch on={!!current} label={`Share ${p.label}`} disabled={!state} onChange={() => share(p.id, current ? false : choice.until)} />
+            </div>
+          )
+        })}
       </div>
       <p className="mono faint">
         {sharingAny

@@ -1,15 +1,41 @@
 // Client for the usage server's sharing settings (server/src/http/sharing.ts).
 
+import { formatStamp } from './format'
+import type { QuotaWindow } from './quota'
+
 export const POOLS = [
-  { id: 'claude', label: 'Claude' },
-  { id: 'codex', label: 'Codex' },
-  { id: 'grok', label: 'Grok' },
-  { id: 'muse', label: 'Muse' },
+  { id: 'claude', label: 'Claude', provider: 'claude' },
+  { id: 'codex', label: 'Codex', provider: 'codex' },
+  { id: 'grok', label: 'Grok', provider: 'xai' },
+  { id: 'muse', label: 'Muse', provider: 'meta' },
 ] as const
 export type Pool = (typeof POOLS)[number]['id']
 
 export type Peer = { id: number; name: string; createdAt: number }
-export type SharingState = { sharing: Record<Pool, boolean>; peers: Peer[] }
+export type Sharing = { until: number | null }
+export type SharingState = { sharing: Record<Pool, Sharing | null>; peers: Peer[] }
+export type Choice = { id: string; label: string; until: number | null }
+
+const HOUR = 3600e3
+
+// How long to share a pool for, given its accounts' quota windows. The first
+// choice is the default: until the pool's next reset when one is known.
+export function sharingChoices(windows: QuotaWindow[], now: number): Choice[] {
+  const soonest = (list: QuotaWindow[]) =>
+    Math.min(...list.map((w) => w.resetAtMs ?? Infinity).filter((t) => t > now))
+  const next = soonest(windows)
+  const weekly = soonest(windows.filter((w) => w.id === 'weekly'))
+  const choices: Choice[] = []
+  if (Number.isFinite(next)) choices.push({ id: 'reset', label: `Until next reset · ${formatStamp(next, now)}`, until: next })
+  if (Number.isFinite(weekly) && weekly !== next) choices.push({ id: 'weekly', label: `Until weekly reset · ${formatStamp(weekly, now)}`, until: weekly })
+  choices.push(
+    { id: '2h', label: 'For 2 hours', until: now + 2 * HOUR },
+    { id: '8h', label: 'For 8 hours', until: now + 8 * HOUR },
+    { id: 'today', label: 'Rest of today', until: new Date(now).setHours(24, 0, 0, 0) },
+    { id: 'off', label: 'Until I turn it off', until: null },
+  )
+  return choices
+}
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api/pool${path}`, {
@@ -23,7 +49,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const getSharing = () => call<SharingState>('GET', '')
-export const setShared = (pool: Pool, shared: boolean) => call<Pick<SharingState, 'sharing'>>('PUT', '/sharing', { pool, shared })
+// until: a time, null (until turned off) or false (stop now).
+export const setSharing = (pool: Pool, until: number | null | false) => call<Pick<SharingState, 'sharing'>>('PUT', '/sharing', { pool, until })
 export const addPeer = (name: string) => call<{ token: string }>('POST', '/peers', { name })
 export const removePeer = (id: number) => call<{ ok: true }>('DELETE', `/peers/${id}`)
 

@@ -13,7 +13,7 @@ import { Hono } from 'hono'
 import { getConnInfo } from 'hono/bun'
 import type { Db } from '../db/client'
 import { importTranscripts, type TranscriptFile } from '../import/importer'
-import type { Sharing } from '../sharing'
+import type { SharingStore } from '../sharing'
 import type { ProxyKeys } from '../proxy-keys'
 import type { PriceBook } from '../usage/pricing'
 import { connectApp, type ConnectOptions } from './connect'
@@ -23,7 +23,7 @@ import { poolGateway } from './sharing'
 
 const MAX_FAILURES_PER_MINUTE = 10
 
-export function startLanListener(db: Db, prices: PriceBook, keys: ProxyKeys, connect: ConnectOptions, proxyUrl: string, managementKey: string, pool: Sharing) {
+export function startLanListener(db: Db, prices: PriceBook, keys: ProxyKeys, connect: ConnectOptions, proxyUrl: string, managementKey: string, pool: SharingStore) {
   const failures: number[] = []
   const app = new Hono()
 

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e6491cb4-af46-4402-8c58-a1283b3c1fbf",
+  "id": "af9f0f0a-125a-484b-8d3e-33d29a993935",
   "prevId": "79198af1-734d-4e91-89ae-5e7540f8c387",
   "tables": {
     "key_labels": {
@@ -190,11 +190,11 @@
           "notNull": true,
           "autoincrement": false
         },
-        "shared": {
-          "name": "shared",
+        "until": {
+          "name": "until",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         }
       },

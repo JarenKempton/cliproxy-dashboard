@@ -312,3 +312,13 @@
   overflow-x: auto;
   font-size: 12px;
 }
+
+.share-when {
+  min-width: 0;
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.share-when select {
+  width: min(100%, 300px);
+}

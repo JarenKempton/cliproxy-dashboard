@@ -11,13 +11,13 @@
 // And the dashboard's settings, on the loopback server only:
 //
 //   GET    /api/pool                  sharing, peers
-//   PUT    /api/pool/sharing          { pool, shared }
+//   PUT    /api/pool/sharing          { pool, until }: a time, null (until turned off) or false (stop)
 //   POST   /api/pool/peers            { name } -> { token }, shown once
 //   DELETE /api/pool/peers/:id
 
 import { Hono } from 'hono'
 import { getBunServer } from 'hono/bun'
-import { isPool, type Sharing } from '../sharing'
+import { isPool, type SharingStore } from '../sharing'
 
 const MAX_FAILURES_PER_MINUTE = 10
 const HOP_BY_HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-encoding', 'content-length', 'host']
@@ -38,7 +38,7 @@ const modelOf = (body: string) => {
   }
 }
 
-export function poolGateway(target: string, pool: Sharing) {
+export function poolGateway(target: string, pool: SharingStore) {
   const failures: number[] = []
   const app = new Hono()
 
@@ -74,15 +74,17 @@ export function poolGateway(target: string, pool: Sharing) {
   return app
 }
 
-export function poolSettings(pool: Sharing) {
+export function poolSettings(pool: SharingStore) {
   const app = new Hono().basePath('/api/pool')
 
   app.get('/', (c) => c.json({ sharing: pool.sharing(), peers: pool.peers() }))
 
   app.put('/sharing', async (c) => {
-    const { pool: name, shared } = await c.req.json<{ pool?: string; shared?: boolean }>()
-    if (!isPool(name) || typeof shared !== 'boolean') return c.json({ error: 'pool and shared are required' }, 400)
-    pool.setShared(name, shared)
+    const { pool: name, until } = await c.req.json<{ pool?: string; until?: number | null | false }>()
+    if (!isPool(name)) return c.json({ error: 'pool is required' }, 400)
+    if (until === false) pool.stopSharing(name)
+    else if (until === null || (typeof until === 'number' && until > Date.now())) pool.share(name, until)
+    else return c.json({ error: 'until must be a future time, null (until turned off) or false (stop)' }, 400)
     return c.json({ sharing: pool.sharing() })
   })
 
