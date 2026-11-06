@@ -101,14 +101,22 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
         for (const a of lent.accounts) {
           const weekly = a.windows.find((w) => w.id === 'weekly')
           if (!weekly?.resetAtMs) continue
-          const account = { cost: new Map(a.cost), peerCost: new Map(a.yourCost), window: { ...weekly, resetAtMs: weekly.resetAtMs }, lentUntil: lent.until }
+          const account = {
+            cost: new Map(a.cost),
+            peerCost: new Map(a.yourCost),
+            window: { ...weekly, resetAtMs: weekly.resetAtMs },
+            lentUntil: lent.until,
+            floor: lent.floor,
+          }
           pools.set(lent.provider, [...(pools.get(lent.provider) ?? []), account])
         }
       }
     }
   }
   const borrowedFor = (provider: string) =>
-    sharing.lenders.flatMap((l) => l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until })))
+    sharing.lenders.flatMap((l) =>
+      l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until, floor: p.floor })),
+    )
   const peerLabelFor = (provider: string) => {
     const owners = [...new Set(borrowedFor(provider).map((b) => b.owner))]
     if (owners.length) return owners.length === 1 ? `from ${owners[0]}’s` : 'from borrowed'
@@ -117,7 +125,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
   const lendingFor = (provider: string) => {
     const pool = POOLS.find((p) => p.provider === provider)
     const lent = pool && sharing.lending?.[pool.id]
-    return lent && (lent.until === null || lent.until > now) ? lent : null
+    return lent && (lent.until === null || lent.until > now) ? { ...lent, floor: sharing.floors?.[pool.id] ?? 0 } : null
   }
 
   const dateLabel = (d: Date) => `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`

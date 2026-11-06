@@ -8,8 +8,9 @@
 // account per window, so it does not depend on how much of the calendar is on
 // screen. Paces are per workday:
 // weekends count as light days. Requests drain the account that resets soonest
-// first. Accounts a peer lends are used only after your own and leave the
-// pool when the peer stops sharing; the usual pace comes from your own.
+// first. Accounts a peer lends are used only after your own, only above the
+// share the peer keeps, and leave the pool when the peer stops sharing; the
+// usual pace comes from your own.
 
 import type { QuotaWindow } from './quota'
 
@@ -29,7 +30,12 @@ export type PoolAccount = {
   window: QuotaWindow & { resetAtMs: number }
   lentUntil?: number | null
   peerCost?: Map<number, number>
+  // A lent account's floor: the percent of each limit its owner keeps.
+  floor?: number
 }
+
+const fullOf = (a: PoolAccount) => 100 - (a.floor ?? 0)
+const usable = (a: PoolAccount, used: number) => Math.min(fullOf(a), Math.max(0, 100 - used - (a.floor ?? 0)))
 export type PoolPoint = { t: number; pool: number }
 export type PeerDrop = { from: number; to: number; points: number }
 
@@ -75,7 +81,7 @@ function resetsBetween(w: PoolAccount['window'], from: number, to: number) {
   return out
 }
 
-type Slot = { left: number; resets: number[]; lent: boolean; until: number }
+type Slot = { left: number; full: number; resets: number[]; lent: boolean; until: number }
 
 function simulate(slots: Slot[], from: number, to: number, perDay: number) {
   const s = slots.map((x) => ({ ...x, resets: [...x.resets] }))
@@ -95,7 +101,7 @@ function simulate(slots: Slot[], from: number, to: number, perDay: number) {
     const end = Math.min(t + HOUR, to)
     for (const x of s) {
       while (x.resets.length && end >= x.resets[0]) {
-        x.left = 100
+        x.left = x.full
         x.resets.shift()
       }
       if (end >= x.until) {
@@ -131,13 +137,13 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   const levelAt = (i: number, t: number) => {
     const a = accounts[i]
     const used = costBetween(a.cost, windowStart(a.window, t), t) / microsPerPercent[i]
-    return Math.min(100, Math.max(0, 100 - used))
+    return usable(a, used)
   }
   const poolAt = (t: number) => accounts.reduce((s, _, i) => s + levelAt(i, t), 0) / accounts.length
 
   const past: PoolPoint[] = []
   for (let t = floorHour(spanStart); t < now; t += HOUR) past.push({ t, pool: poolAt(t) })
-  const left = accounts.reduce((s, a) => s + Math.max(0, 100 - a.window.usedPercent), 0) / accounts.length
+  const left = accounts.reduce((s, a) => s + usable(a, a.window.usedPercent), 0) / accounts.length
   past.push({ t: now, pool: left })
   const peerDrops: PeerDrop[] = []
   for (let t = floorHour(spanStart); t < now; t += HOUR) {
@@ -160,11 +166,12 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   const slotsFrom = (from: number, to: number, level: (i: number) => number) =>
     accounts.map((a, i) => ({
       left: level(i),
+      full: fullOf(a),
       resets: resetsBetween(a.window, from, to).filter((r) => r < lentUntil(a)),
       lent: a.lentUntil !== undefined,
       until: lentUntil(a),
     }))
-  const liveLevel = (i: number) => Math.max(0, 100 - accounts[i].window.usedPercent)
+  const liveLevel = (i: number) => usable(accounts[i], accounts[i].window.usedPercent)
   const aheadAt = (perDay: number) => simulate(slotsFrom(now, now + period, liveLevel), now, now + period, perDay)
   const dry = runsDry(aheadAt(usualPerDay))
   let [safePerDay, tooMuch] = [0, 100 * accounts.length]
@@ -186,7 +193,7 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
       live.reduce((s, a) => {
         const start = windowStart(a.window, t)
         const end = start + a.window.periodMs
-        return s + (100 * workdaysIn(t, end)) / workdaysOfWindow(start, end)
+        return s + (fullOf(a) * workdaysIn(t, end)) / workdaysOfWindow(start, end)
       }, 0) / Math.max(1, live.length)
     )
   }

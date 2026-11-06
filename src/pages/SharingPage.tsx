@@ -4,8 +4,10 @@ import { ProviderMark } from '../components/ProviderMark'
 import { ConfirmDialog, copyText, PageHead, Switch, toast } from '../components/ui'
 import { formatRelative, formatStamp } from '../lib/format'
 import { providerOf } from '../lib/quota'
-import { addPeer, getSharing, peerConfig, POOLS, removePeer, setOwner, setSharing, sharingChoices, type Peer, type Pool, type SharingState } from '../lib/sharing'
+import { addPeer, getSharing, peerConfig, POOLS, removePeer, setFloor, setOwner, setSharing, sharingChoices, type Peer, type Pool, type SharingState } from '../lib/sharing'
 import { useStore } from '../lib/store'
+
+const FLOORS = [0, 10, 20, 30, 40, 50, 60, 70]
 
 type Networks = Record<'tailnet' | 'lan', { dashboard: string } | null>
 
@@ -56,6 +58,16 @@ export function SharingPage() {
       setState({ ...state, sharing })
     } catch (err) {
       toast(`Couldn’t change sharing: ${(err as Error).message}`)
+    }
+  }
+
+  const keep = async (pool: Pool, percent: number) => {
+    if (!state) return
+    try {
+      const { floors } = await setFloor(pool, percent)
+      setState({ ...state, floors })
+    } catch (err) {
+      toast(`Couldn’t change what you keep: ${(err as Error).message}`)
     }
   }
 
@@ -135,6 +147,19 @@ export function SharingPage() {
                     ))}
                   </select>
                 )}
+                <select
+                  className="input share-floor"
+                  aria-label={`Share of each ${p.label} limit to keep for yourself`}
+                  value={state?.floors[p.id] ?? 0}
+                  disabled={!state}
+                  onChange={(e) => keep(p.id, Number(e.target.value))}
+                >
+                  {FLOORS.map((f) => (
+                    <option key={f} value={f}>
+                      {f ? `Keep ${f}% for me` : 'Keep nothing back'}
+                    </option>
+                  ))}
+                </select>
               </span>
               <Switch on={!!current} label={`Share ${p.label}`} disabled={!state} onChange={() => share(p.id, current ? false : choice.until)} />
             </div>
@@ -143,7 +168,7 @@ export function SharingPage() {
       </div>
       <p className="mono faint">
         {sharingAny
-          ? 'Peers can use a shared pool only while it has a working account here.'
+          ? 'Peers can use a shared pool only while it has a working account here, and only above what you keep.'
           : 'Nothing is shared. Every peer request is refused before it reaches the proxy.'}
       </p>
 

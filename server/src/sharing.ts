@@ -135,10 +135,21 @@ export class SharingStore {
         const models = await this.management(`/auth-files/models?name=${encodeURIComponent(account.name)}`)
         if (!models.ok) continue
         const { models: list = [] } = (await models.json()) as { models?: { id: string }[] }
-        if (list.some((m) => m.id === model)) return pool
+        if (list.some((m) => m.id === model)) return (await this.aboveFloor(pool)) ? pool : null
       }
     }
     return null
+  }
+
+  // The share of each limit kept for this proxy's own use, in percent.
+  floors(): Record<Pool, number> {
+    const rows = new Map(this.db.select().from(settings).all().map((r) => [r.key, Number(r.value)]))
+    return Object.fromEntries(Object.keys(POOLS).map((p) => [p, rows.get(`floor:${p}`) ?? 0])) as Record<Pool, number>
+  }
+
+  setFloor(pool: Pool, percent: number) {
+    const value = String(percent)
+    this.db.insert(settings).values({ key: `floor:${pool}`, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
   }
 
   owner(): string {
@@ -156,6 +167,7 @@ export class SharingStore {
     const cached = this.status.get(peer.id)
     if (cached && now - cached.at < STATUS_TTL_MS) return cached.body
     const sharing = this.sharing(now)
+    const floors = this.floors()
     const shared = (Object.keys(POOLS) as Pool[]).filter((p) => sharing[p])
     const files = shared.length ? (await listAuthFiles()).filter((f) => !f.disabled) : []
     const hours = shared.length ? accountHours(this.db, now - COST_HISTORY_MS, [hashKey(peer.proxyKey)]) : []
@@ -174,7 +186,7 @@ export class SharingStore {
           yourCost: mine.filter((h) => h.peerMicros > 0).map((h): [number, number] => [h.hour, h.peerMicros]),
         })
       }
-      if (accounts.length) pools.push({ pool, provider, until: sharing[pool]!.until, accounts })
+      if (accounts.length) pools.push({ pool, provider, until: sharing[pool]!.until, floor: floors[pool], accounts })
     }
     const body = { owner: this.owner(), pools }
     this.status.set(peer.id, { at: now, body })
@@ -183,6 +195,21 @@ export class SharingStore {
 
   forgetStatus() {
     this.status.clear()
+  }
+
+  // Whether the pool has more left than its floor: the tightest limit of
+  // each working account, averaged over the pool. The proxy picks which
+  // account serves a request, so with several accounts this is pool-wide.
+  private async aboveFloor(pool: Pool) {
+    const floor = this.floors()[pool]
+    if (!floor) return true
+    const files = (await listAuthFiles()).filter((f) => providerOf(f) === POOLS[pool] && !f.disabled && !f.unavailable)
+    const left: number[] = []
+    for (const f of files) {
+      const quota = await fetchQuota(f).catch(() => null)
+      if (quota?.windows.length) left.push(Math.min(...quota.windows.map((w) => 100 - w.usedPercent)))
+    }
+    return left.length > 0 && left.reduce((s, l) => s + l, 0) / left.length > floor
   }
 
   // Peers this proxy borrows from, found in its own config as upstreams whose

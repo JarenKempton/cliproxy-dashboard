@@ -22,8 +22,9 @@ function level(remaining: number) {
   return remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
 }
 
+// floor: on a borrowed account, the share its owner keeps, drawn hatched.
 // refills: say when the window refills, as a time, rather than how long until it resets.
-export function WindowRow({ w, now, refills = false }: { w: QuotaWindow; now: number; refills?: boolean }) {
+export function WindowRow({ w, now, floor = 0, refills = false }: { w: QuotaWindow; now: number; floor?: number; refills?: boolean }) {
   const remaining = Math.max(0, Math.min(100, 100 - w.usedPercent))
   const pace = paceOf(w, now)
   // Where "remaining" would sit on an even burn; ahead of it means headroom.
@@ -36,10 +37,13 @@ export function WindowRow({ w, now, refills = false }: { w: QuotaWindow; now: nu
     <div className="qrow" title={title}>
       <div className="qrow-head">
         <span>{w.label}</span>
-        <span className={`mono qrow-value ${level(remaining)}`}>{Math.round(remaining)}%</span>
+        <span className={`mono qrow-value ${level(remaining - floor)}`}>
+          {Math.round(remaining)}%{floor > 0 && ` · ${Math.round(Math.max(0, remaining - floor))} yours`}
+        </span>
       </div>
       <div className={`dbar ${level(remaining)}`} role="meter" aria-label={`${w.label} remaining`} aria-valuenow={Math.round(remaining)} aria-valuemin={0} aria-valuemax={100}>
         {remaining > 0 && <div className="dbar-fill" style={{ width: `${remaining}%` }} />}
+        {floor > 0 && <div className="dbar-floor" style={{ width: `${Math.min(floor, remaining)}%` }} title={`The owner keeps ${floor}%`} />}
         {paceMark !== null && pace.kind !== 'maxed' && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
       </div>
       <div className="qrow-meta mono">

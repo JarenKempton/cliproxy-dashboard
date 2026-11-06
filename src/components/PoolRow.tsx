@@ -42,8 +42,8 @@ export function PoolRow({
 }: {
   provider: string
   accounts: PoolAccount[]
-  borrowed: { owner: string; until: number | null }[]
-  lending: Sharing | null
+  borrowed: { owner: string; until: number | null; floor: number }[]
+  lending: (Sharing & { floor: number }) | null
   peerLabel: string
   spanStart: number
   spanEnd: number
@@ -76,8 +76,14 @@ export function PoolRow({
       value: aroundHour(pool.belowPlan.until, now),
     })
   if (nextRefill < Infinity) facts.push({ term: 'Next refill', value: formatStamp(nextRefill, now) })
-  for (const b of borrowed) facts.push({ term: `From ${b.owner}`, value: untilText(b.until, now) })
-  if (lending) facts.push({ term: 'Lent to peers', value: untilText(lending.until, now) })
+  for (const b of borrowed) {
+    facts.push({ term: `From ${b.owner}`, value: untilText(b.until, now) })
+    if (b.floor) facts.push({ term: `${b.owner} keeps`, value: `${b.floor}%` })
+  }
+  if (lending) {
+    facts.push({ term: 'Lent to peers', value: untilText(lending.until, now) })
+    if (lending.floor) facts.push({ term: 'You keep', value: `${lending.floor}%` })
+  }
   facts.push({
     term: 'Your pace',
     value: `${Math.round(pool.usualPerDay)}%/workday`,

@@ -319,8 +319,19 @@
   font-size: 12px;
 }
 
+.share-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .share-when select {
   width: min(100%, 300px);
+}
+
+.share-when .share-floor {
+  width: min(100%, 170px);
 }
 
 .share-owner {

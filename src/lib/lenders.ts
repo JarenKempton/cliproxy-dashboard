@@ -5,14 +5,14 @@ import { getLenders, getSharing, type Lender, type Peer, type SharingState } fro
 
 const EVERY_MS = 5 * 60e3
 
-export type SharingOverview = { lenders: Lender[]; lending: SharingState['sharing'] | null; peers: Peer[] }
+export type SharingOverview = { lenders: Lender[]; lending: SharingState['sharing'] | null; floors: SharingState['floors'] | null; peers: Peer[] }
 
 export function useSharingOverview(): SharingOverview {
-  const [overview, setOverview] = useState<SharingOverview>({ lenders: [], lending: null, peers: [] })
+  const [overview, setOverview] = useState<SharingOverview>({ lenders: [], lending: null, floors: null, peers: [] })
   useEffect(() => {
     const load = () =>
       Promise.all([getLenders().catch(() => []), getSharing().catch(() => null)]).then(([lenders, own]) =>
-        setOverview({ lenders, lending: own?.sharing ?? null, peers: own?.peers ?? [] }),
+        setOverview({ lenders, lending: own?.sharing ?? null, floors: own?.floors ?? null, peers: own?.peers ?? [] }),
       )
     load()
     const timer = setInterval(load, EVERY_MS)

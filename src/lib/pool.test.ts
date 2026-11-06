@@ -128,6 +128,14 @@ describe('a pool a peer lends', () => {
     expect(at(sixHours - HOUR)).toBeCloseTo((ownLeft + 100) / 2, 0)
   })
 
+  test('counts only what is above the share the lender keeps, refills included', () => {
+    const kept = { ...lent(null), window: { ...lent(null).window, usedPercent: 38 }, floor: 30 }
+    const pool = poolOf([own, kept], spanStart, spanEnd, now)!
+    expect(pool.left).toBe((50 + 32) / 2)
+    const afterRefill = pool.projected.find((p) => p.t > Date.UTC(2026, 10, 2, 4))!
+    expect(afterRefill.pool).toBeLessThanOrEqual((50 + 70) / 2)
+  })
+
   test('keeps your usual pace from your own spending, not the lender’s', () => {
     const alone = poolOf([own], spanStart, spanEnd, now)!
     const withLent = poolOf([own, lent(null, [[Date.UTC(2026, 9, 30, 14), 90000]])], spanStart, spanEnd, now)!
