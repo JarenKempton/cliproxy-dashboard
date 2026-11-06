@@ -22,7 +22,7 @@ function level(remaining: number) {
   return remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
 }
 
-function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
+export function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
   const remaining = Math.max(0, Math.min(100, 100 - w.usedPercent))
   const pace = paceOf(w, now)
   // Where "remaining" would sit on an even burn; ahead of it means headroom.

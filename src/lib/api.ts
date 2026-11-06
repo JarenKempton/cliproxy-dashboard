@@ -19,9 +19,15 @@ export let proxyVersion: string | null = null
 
 type Options = { body?: unknown; raw?: string; contentType?: string }
 
+// The usage server reads quota through its own management bridge, in process.
+let send: (path: string, init: RequestInit) => Promise<Response> = (path, init) => fetch(path, init)
+export function sendManagementVia(fn: typeof send) {
+  send = fn
+}
+
 async function request(method: string, path: string, opts: Options = {}): Promise<unknown> {
   const body = opts.raw ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body))
-  const res = await fetch(BASE + path, {
+  const res = await send(BASE + path, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': opts.contentType ?? 'application/json' },
     body,

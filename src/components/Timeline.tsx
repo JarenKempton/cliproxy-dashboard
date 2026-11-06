@@ -6,6 +6,8 @@ import type { PoolAccount } from '../lib/pool'
 import { pickLaneWindow, projectLane, startOfDay, timelineSpan, type TimelineMode } from '../lib/timeline'
 import { getAccountHours, type AccountHour } from '../lib/usage'
 import { PoolRow } from './PoolRow'
+import { lenderName, type SharingOverview } from '../lib/lenders'
+import { POOLS } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 import { Segmented } from './ui'
 
@@ -44,7 +46,7 @@ function useAccountHours() {
 type View = 'burndown' | 'windows'
 const VIEW_KEY = 'quota-timeline-view'
 
-export function Timeline() {
+export function Timeline({ sharing }: { sharing: SharingOverview }) {
   const { files, quotas, now } = useStore()
   const [view, setView] = useState<View>(() => (localStorage.getItem(VIEW_KEY) === 'windows' ? 'windows' : 'burndown'))
   const [laneMode, setLaneMode] = useState<TimelineMode>('weekly')
@@ -91,6 +93,24 @@ export function Timeline() {
       const cost = new Map(hours.filter((h) => h.provider === provider && h.account === label).map((h) => [h.hour, h.costMicros]))
       pools.set(provider, [...(pools.get(provider) ?? []), { cost, window: { ...weekly, resetAtMs: weekly.resetAtMs } }])
     }
+    for (const lender of sharing.lenders) {
+      for (const lent of lender.pools) {
+        if (lent.until !== null && lent.until <= now) continue
+        for (const a of lent.accounts) {
+          const weekly = a.windows.find((w) => w.id === 'weekly')
+          if (!weekly?.resetAtMs) continue
+          const account = { cost: new Map(a.cost), window: { ...weekly, resetAtMs: weekly.resetAtMs }, lentUntil: lent.until }
+          pools.set(lent.provider, [...(pools.get(lent.provider) ?? []), account])
+        }
+      }
+    }
+  }
+  const borrowedFor = (provider: string) =>
+    sharing.lenders.flatMap((l) => l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until })))
+  const lendingFor = (provider: string) => {
+    const pool = POOLS.find((p) => p.provider === provider)
+    const lent = pool && sharing.lending?.[pool.id]
+    return lent && (lent.until === null || lent.until > now) ? lent : null
   }
 
   const dateLabel = (d: Date) => `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`
@@ -168,7 +188,16 @@ export function Timeline() {
         </div>
 
         {[...pools].map(([provider, accounts]) => (
-          <PoolRow key={provider} provider={provider} accounts={accounts} spanStart={span.startMs} spanEnd={span.endMs} now={now} />
+          <PoolRow
+            key={provider}
+            provider={provider}
+            accounts={accounts}
+            borrowed={borrowedFor(provider)}
+            lending={lendingFor(provider)}
+            spanStart={span.startMs}
+            spanEnd={span.endMs}
+            now={now}
+          />
         ))}
 
         {burndown && pools.size === 0 && <div className="tl-empty faint">No active account has a weekly window to project.</div>}

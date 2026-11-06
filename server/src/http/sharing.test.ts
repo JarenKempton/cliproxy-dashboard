@@ -2,14 +2,17 @@ import { afterAll, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { sendManagementVia } from '../../../src/lib/api'
 import { openDb } from '../db/client'
+import { requests } from '../db/schema'
 import { SharingStore } from '../sharing'
 import { poolGateway, poolSettings } from './sharing'
 
-type Account = { name: string; provider: string; unavailable?: boolean; models: string[] }
+type Account = { name: string; auth_index: string; email: string; provider: string; unavailable?: boolean; models: string[] }
 
 const proxy = {
   refuseDeletes: false,
+  upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
   forwarded: [] as { path: string; auth: string | null; apiKey: string | null; body: string }[],
@@ -28,6 +31,12 @@ const upstream = Bun.serve({
       return Response.json({ status: 'ok' })
     }
     if (url.pathname === '/v0/management/auth-files') return Response.json({ files: proxy.accounts })
+    if (url.pathname === '/v0/management/claude-api-key') return Response.json({ 'claude-api-key': proxy.upstreamKeys })
+    if (url.pathname === '/v0/management/api-call') {
+      const call = (await req.json()) as { url: string }
+      const usage = { limits: [{ kind: 'weekly_all', percent: 40, resets_at: '2099-01-01T00:00:00Z' }] }
+      return Response.json({ status_code: 200, body: call.url.endsWith('/usage') ? JSON.stringify(usage) : '{}' })
+    }
     if (url.pathname === '/v0/management/auth-files/models') {
       const account = proxy.accounts.find((a) => a.name === url.searchParams.get('name'))
       return Response.json({ models: (account?.models ?? []).map((id) => ({ id })) })
@@ -39,6 +48,7 @@ const upstream = Bun.serve({
 
 const db = openDb(join(mkdtempSync(join(tmpdir(), 'pool-')), 'usage.db'))
 const store = new SharingStore(db, upstream.url.origin, 'management')
+sendManagementVia((path, init) => fetch(`${upstream.url.origin}${path}`, init))
 const gateway = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: poolGateway(upstream.url.origin, store).fetch })
 const token = await store.addPeer('Curt')
 
@@ -50,10 +60,11 @@ afterAll(() => {
 beforeEach(() => {
   for (const p of ['claude', 'codex', 'grok', 'muse'] as const) store.stopSharing(p)
   proxy.accounts = [
-    { name: 'claude-1.json', provider: 'claude', models: ['claude-sonnet-5-5'] },
-    { name: 'codex-1.json', provider: 'codex', models: ['gpt-5.5'] },
+    { name: 'claude-1.json', auth_index: 'c1', email: 'lender@example.com', provider: 'claude', models: ['claude-sonnet-5-5'] },
+    { name: 'codex-1.json', auth_index: 'x1', email: 'lender@example.com', provider: 'codex', models: ['gpt-5.5'] },
   ]
   proxy.forwarded = []
+  store.forgetStatus()
 })
 
 const borrow = (model: string, headers: Record<string, string> = { 'x-api-key': token }) =>
@@ -134,9 +145,12 @@ test('forwards the body as checked, so a second "model" key can’t reach an uns
 
 test('someone guessing tokens doesn’t lock out a peer with a valid one', async () => {
   store.share('claude', null)
-  for (let i = 0; i < 12; i++) await borrow('claude-sonnet-5-5', { 'x-api-key': `pool-guess-${i}` })
-  expect((await borrow('claude-sonnet-5-5', { 'x-api-key': 'pool-guess' })).status).toBe(429)
-  expect((await borrow('claude-sonnet-5-5')).status).toBe(200)
+  const own = poolGateway(upstream.url.origin, store)
+  const send = (key: string) =>
+    own.request('/pool/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key }, body: '{"model":"claude-sonnet-5-5"}' }, { server: { requestIP: () => ({ address: '10.0.0.9' }), timeout: () => {} } })
+  for (let i = 0; i < 12; i++) await send(`pool-guess-${i}`)
+  expect((await send('pool-guess')).status).toBe(429)
+  expect((await send(token)).status).toBe(200)
 })
 
 test('settings writes must be JSON, so another site can’t post them', async () => {
@@ -174,5 +188,43 @@ test('a peer isn’t left behind when the proxy can’t be reached while adding 
     globalThis.fetch = original
   }
   expect(store.peers()).toHaveLength(before)
+})
+
+test('tells a peer what is shared right now: quota windows, hourly cost and when it ends', async () => {
+  const hour = Math.floor(Date.now() / 3600e3) * 3600e3 - 3600e3
+  db.insert(requests)
+    .values({ id: 'r1', source: 'cliproxy', occurredAt: new Date(hour + 60e3), receivedAt: new Date(), provider: 'claude', model: 'claude-sonnet-5-5', accountLabel: 'lender@example.com', failed: false, costMicros: 1200 })
+    .run()
+  store.setOwner('Jaren')
+  const until = Date.now() + 3600e3
+  store.share('claude', until)
+  const status = (url: string, token?: string) => fetch(url, { headers: token ? { authorization: `Bearer ${token}` } : {} })
+
+  expect((await status(`${gateway.url.origin}/pool/status`)).status).toBe(401)
+  expect(await (await status(`${gateway.url.origin}/pool/status`, token)).json()).toEqual({
+    owner: 'Jaren',
+    pools: [
+      {
+        pool: 'claude',
+        provider: 'claude',
+        until,
+        accounts: [{ windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, resetAtMs: Date.parse('2099-01-01T00:00:00Z'), periodMs: 168 * 3600e3 }], cost: [[hour, 1200]] }],
+      },
+    ],
+  })
+})
+
+test('finds the peers this proxy borrows from in its own upstream config', async () => {
+  store.setOwner('Jaren')
+  store.share('claude', null)
+  proxy.upstreamKeys = [
+    { 'api-key': token, 'base-url': `${gateway.url.origin}/pool` },
+    { 'api-key': 'sk-ant-real', 'base-url': 'https://api.anthropic.com' },
+  ]
+  const [lender, ...rest] = await store.lenders()
+  expect(rest).toEqual([])
+  expect(lender.gateway).toBe(gateway.url.origin)
+  expect(lender.owner).toBe('Jaren')
+  expect(lender.pools.map((p) => [p.pool, p.until])).toEqual([['claude', null]])
 })
 

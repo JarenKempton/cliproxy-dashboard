@@ -8,7 +8,8 @@
 // account per window, so it does not depend on how much of the calendar is on
 // screen. Paces are per workday:
 // weekends count as light days. Requests drain the account that resets soonest
-// first.
+// first. Accounts a peer lends are used only after your own and leave the
+// pool when the peer stops sharing; the usual pace comes from your own.
 
 import type { QuotaWindow } from './quota'
 
@@ -20,7 +21,8 @@ const WORKDAY = 14 + 10 * OFF_HOURS
 const MIN_USED_TO_CALIBRATE = 5
 export const PLAN_SLACK = 1
 
-export type PoolAccount = { cost: Map<number, number>; window: QuotaWindow & { resetAtMs: number } }
+// lentUntil: unset for your own accounts; for a peer's, when sharing ends (null: until they stop it).
+export type PoolAccount = { cost: Map<number, number>; window: QuotaWindow & { resetAtMs: number }; lentUntil?: number | null }
 export type PoolPoint = { t: number; pool: number }
 
 export type Pool = {
@@ -62,15 +64,19 @@ function resetsBetween(w: PoolAccount['window'], from: number, to: number) {
   return out
 }
 
-type Slot = { left: number; resets: number[] }
+type Slot = { left: number; resets: number[]; lent: boolean; until: number }
 
 function simulate(slots: Slot[], from: number, to: number, perDay: number) {
-  const s = slots.map((x) => ({ left: x.left, resets: [...x.resets] }))
-  const level = () => s.reduce((sum, x) => sum + x.left, 0) / s.length
-  const points: PoolPoint[] = [{ t: from, pool: level() }]
+  const s = slots.map((x) => ({ ...x, resets: [...x.resets] }))
+  const order = (a: Slot, b: Slot) => Number(a.lent) - Number(b.lent) || (a.resets[0] ?? Infinity) - (b.resets[0] ?? Infinity)
+  const level = (t: number) => {
+    const live = s.filter((x) => t < x.until)
+    return live.length ? live.reduce((sum, x) => sum + x.left, 0) / live.length : 0
+  }
+  const points: PoolPoint[] = [{ t: from, pool: level(from) }]
   for (let t = from; t < to; t += HOUR) {
     let burn = (perDay * s.length * workWeight(t)) / WORKDAY
-    for (const x of [...s].sort((a, b) => (a.resets[0] ?? Infinity) - (b.resets[0] ?? Infinity))) {
+    for (const x of [...s].sort(order)) {
       const take = Math.min(burn, x.left)
       x.left -= take
       burn -= take
@@ -81,8 +87,12 @@ function simulate(slots: Slot[], from: number, to: number, perDay: number) {
         x.left = 100
         x.resets.shift()
       }
+      if (end >= x.until) {
+        x.left = 0
+        x.resets = []
+      }
     }
-    points.push({ t: end, pool: level() })
+    points.push({ t: end, pool: level(end) })
   }
   return points
 }
@@ -115,13 +125,22 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
   const left = accounts.reduce((s, a) => s + Math.max(0, 100 - a.window.usedPercent), 0) / accounts.length
   past.push({ t: now, pool: left })
 
-  const usedRecently = accounts.reduce((s, a, i) => s + costBetween(a.cost, now - HISTORY_MS, now) / microsPerPercent[i], 0)
+  const lentUntil = (a: PoolAccount) => (a.lentUntil === undefined || a.lentUntil === null ? Infinity : a.lentUntil)
+  const usedRecently = accounts.reduce(
+    (s, a, i) => (a.lentUntil === undefined ? s + costBetween(a.cost, now - HISTORY_MS, now) / microsPerPercent[i] : s),
+    0,
+  )
   const usualPerDay = usedRecently / accounts.length / workdaysIn(now - HISTORY_MS, now)
   const period = Math.max(...accounts.map((a) => a.window.periodMs))
   const sustainablePerDay = 100 / workdaysIn(now, now + period)
 
   const slotsFrom = (from: number, to: number, level: (i: number) => number) =>
-    accounts.map((a, i) => ({ left: level(i), resets: resetsBetween(a.window, from, to) }))
+    accounts.map((a, i) => ({
+      left: level(i),
+      resets: resetsBetween(a.window, from, to).filter((r) => r < lentUntil(a)),
+      lent: a.lentUntil !== undefined,
+      until: lentUntil(a),
+    }))
   const liveLevel = (i: number) => Math.max(0, 100 - accounts[i].window.usedPercent)
   const aheadAt = (perDay: number) => simulate(slotsFrom(now, now + period, liveLevel), now, now + period, perDay)
   const dry = runsDry(aheadAt(usualPerDay))
@@ -138,12 +157,16 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
     if (!windowWorkdays.has(start)) windowWorkdays.set(start, workdaysIn(start, end))
     return windowWorkdays.get(start)!
   }
-  const planAt = (t: number) =>
-    accounts.reduce((s, a) => {
-      const start = windowStart(a.window, t)
-      const end = start + a.window.periodMs
-      return s + (100 * workdaysIn(t, end)) / workdaysOfWindow(start, end)
-    }, 0) / accounts.length
+  const planAt = (t: number) => {
+    const live = accounts.filter((a) => t < lentUntil(a))
+    return (
+      live.reduce((s, a) => {
+        const start = windowStart(a.window, t)
+        const end = start + a.window.periodMs
+        return s + (100 * workdaysIn(t, end)) / workdaysOfWindow(start, end)
+      }, 0) / Math.max(1, live.length)
+    )
+  }
   const line = [...past, ...projected.slice(1)]
   const plan = line.map((p) => ({ t: p.t, pool: planAt(p.t) }))
   const under = (i: number) => line[i].pool < plan[i].pool - PLAN_SLACK
@@ -157,7 +180,7 @@ export function poolOf(accounts: PoolAccount[], spanStart: number, spanEnd: numb
     plan,
     planNow: planAt(now),
     belowPlan: first < 0 ? null : { from: line[first].t, until: recovered < 0 ? null : line[recovered].t },
-    resets: [...new Set(accounts.flatMap((a) => resetsBetween(a.window, spanStart, spanEnd)))].sort((a, b) => a - b),
+    resets: [...new Set(accounts.flatMap((a) => resetsBetween(a.window, spanStart, spanEnd).filter((r) => r < lentUntil(a))))].sort((a, b) => a - b),
     usualPerDay,
     sustainablePerDay,
     safePerDay,

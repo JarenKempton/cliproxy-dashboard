@@ -13,8 +13,14 @@ export type Pool = (typeof POOLS)[number]['id']
 
 export type Peer = { id: number; name: string; createdAt: number }
 export type Sharing = { until: number | null }
-export type SharingState = { sharing: Record<Pool, Sharing | null>; peers: Peer[] }
+export type SharingState = { sharing: Record<Pool, Sharing | null>; peers: Peer[]; owner: string }
 export type Choice = { id: string; label: string; until: number | null }
+
+// What a lender reports about the pools it shares, for a borrower's Quota page.
+export type LentAccount = { windows: QuotaWindow[]; cost: [hour: number, micros: number][] }
+export type LentPool = { pool: Pool; provider: string; until: number | null; accounts: LentAccount[] }
+export type LenderStatus = { owner: string; pools: LentPool[] }
+export type Lender = { gateway: string; owner?: string; pools: LentPool[]; error?: string }
 
 const HOUR = 3600e3
 
@@ -51,6 +57,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const getSharing = () => call<SharingState>('GET', '')
 // until: a time, null (until turned off) or false (stop now).
 export const setSharing = (pool: Pool, until: number | null | false) => call<Pick<SharingState, 'sharing'>>('PUT', '/sharing', { pool, until })
+export const getLenders = () => call<Lender[]>('GET', '/borrowed')
+export const setOwner = (owner: string) => call<{ owner: string }>('PUT', '/owner', { owner })
 export const addPeer = (name: string) => call<{ token: string }>('POST', '/peers', { name })
 export const removePeer = (id: number) => call<{ ok: true }>('DELETE', `/peers/${id}`)
 

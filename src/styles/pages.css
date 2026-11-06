@@ -322,3 +322,14 @@
 .share-when select {
   width: min(100%, 300px);
 }
+
+.share-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.share-owner .input {
+  width: 160px;
+}

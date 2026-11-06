@@ -133,3 +133,9 @@ export const poolSharing = sqliteTable('pool_sharing', {
   pool: text('pool').primaryKey(),
   until: integer('until', { mode: 'timestamp_ms' }),
 })
+
+// Small named values set from the dashboard, e.g. 'owner': the name peers see.
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+})

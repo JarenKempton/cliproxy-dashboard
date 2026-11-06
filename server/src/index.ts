@@ -18,6 +18,7 @@ import { museRelay } from './http/muse-relay'
 import { poolGateway, poolSettings } from './http/sharing'
 import { SharingStore } from './sharing'
 import { ProxyKeys } from './proxy-keys'
+import { sendManagementVia } from '../../src/lib/api'
 import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
 import { repriceMissing } from './usage/reprice'
@@ -61,7 +62,9 @@ app.route('/', poolGateway(env.proxyUrl, pool))
 app.route('/connect', connectApp(connect))
 app.route('/history', historyPushApp(db, keys))
 app.route('/history', historySearchApp(new HistorySearch(historyEnv.dbPath, jevFromEnv(historyEnv.typesafeApiKey))))
-app.route(MANAGEMENT_PREFIX, managementApp(env.proxyUrl, env.managementKey, env.allowWrites))
+const bridge = managementApp(env.proxyUrl, env.managementKey, env.allowWrites)
+app.route(MANAGEMENT_PREFIX, bridge)
+sendManagementVia(async (path, init) => bridge.fetch(new Request(`http://bridge${path}`, init)))
 app.route('/', museRelay(env.proxyUrl, env.managementKey, keys))
 if (existsSync(env.staticDir)) {
   app.use('*', serveStatic({ root: env.staticDir }))

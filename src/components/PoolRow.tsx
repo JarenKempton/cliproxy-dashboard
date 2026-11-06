@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatStamp } from '../lib/format'
 import { PLAN_SLACK, poolOf, type Pool, type PoolAccount, type PoolPoint } from '../lib/pool'
 import { PROVIDER_NAMES } from '../lib/quota'
+import type { Sharing } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 
 function useSize() {
@@ -26,15 +27,21 @@ function planStatus(pool: Pool, now: number) {
   return { tone: 'warn', text: 'Drops below plan' }
 }
 
+const untilText = (until: number | null, now: number) => (until === null ? 'until turned off' : `until ${formatStamp(until, now)}`)
+
 export function PoolRow({
   provider,
   accounts,
+  borrowed,
+  lending,
   spanStart,
   spanEnd,
   now,
 }: {
   provider: string
   accounts: PoolAccount[]
+  borrowed: { owner: string; until: number | null }[]
+  lending: Sharing | null
   spanStart: number
   spanEnd: number
   now: number
@@ -42,6 +49,7 @@ export function PoolRow({
   const [ref, { width, height }] = useSize()
   const pool = useMemo(() => poolOf(accounts, spanStart, spanEnd, now), [accounts, spanStart, spanEnd, now])
   const pooled = accounts.length > 1
+  const lentCount = accounts.filter((a) => a.lentUntil !== undefined).length
   if (!pool) return null
   const status = planStatus(pool, now)
   const nextRefill = Math.min(...accounts.map((a) => a.window.resetAtMs).filter((t) => t > now))
@@ -65,6 +73,8 @@ export function PoolRow({
       value: aroundHour(pool.belowPlan.until, now),
     })
   if (nextRefill < Infinity) facts.push({ term: 'Next refill', value: formatStamp(nextRefill, now) })
+  for (const b of borrowed) facts.push({ term: `From ${b.owner}`, value: untilText(b.until, now) })
+  if (lending) facts.push({ term: 'Lent to peers', value: untilText(lending.until, now) })
   facts.push({
     term: 'Your pace',
     value: `${Math.round(pool.usualPerDay)}%/workday`,
@@ -87,7 +97,7 @@ export function PoolRow({
           {Math.round(pool.left)}
           <span>%</span>
           <small>
-            {pooled ? `left of ${accounts.length} accounts` : 'left this week'} · plan {Math.round(pool.planNow)}%
+            {pooled ? `left of ${accounts.length} accounts${lentCount ? ` (${lentCount} borrowed)` : ''}` : 'left this week'} · plan {Math.round(pool.planNow)}%
           </small>
         </div>
         <span className={`pool-pill ${status.tone}`}>{status.text}</span>

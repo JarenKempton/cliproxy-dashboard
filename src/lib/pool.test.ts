@@ -103,3 +103,34 @@ describe('quota pool', () => {
     expect(workWeight(Date.UTC(2026, 9, 31, 14))).toBeLessThan(workWeight(Date.UTC(2026, 9, 26, 14)) / 5)
   })
 })
+
+describe('a pool a peer lends', () => {
+  const own = account(50, Date.UTC(2026, 10, 5, 3), [[Date.UTC(2026, 9, 29, 14), 250], [Date.UTC(2026, 9, 30, 14), 250]])
+  const lent = (lentUntil: number | null, spend: [number, number][] = []): PoolAccount => ({ ...account(0, Date.UTC(2026, 10, 2, 3), spend), lentUntil })
+  const sixHours = now + 6 * HOUR
+
+  test('adds its capacity until sharing ends, then leaves the pool', () => {
+    const pool = poolOf([own, lent(sixHours)], spanStart, spanEnd, now)!
+    expect(pool.left).toBe(75)
+    const alone = poolOf([own], spanStart, spanEnd, now)!
+    for (const t of [sixHours, sixHours + 30 * HOUR]) {
+      expect(pool.projected.find((p) => p.t >= t)!.pool).toBeCloseTo(alone.projected.find((p) => p.t >= t)!.pool, 6)
+    }
+    expect(pool.resets).not.toContain(Date.UTC(2026, 10, 2, 3))
+  })
+
+  test('is drawn on only after your own accounts, even when it resets sooner', () => {
+    const busy = account(50, Date.UTC(2026, 10, 5, 3), [[Date.UTC(2026, 9, 20, 14), 200000], [Date.UTC(2026, 9, 29, 14), 25000], [Date.UTC(2026, 9, 30, 14), 25000]])
+    const pool = poolOf([busy, lent(sixHours)], spanStart, spanEnd, now)!
+    const at = (t: number) => pool.projected.find((p) => p.t >= t)!.pool
+    const ownLeft = at(sixHours)
+    expect(ownLeft).toBeLessThan(48)
+    expect(at(sixHours - HOUR)).toBeCloseTo((ownLeft + 100) / 2, 0)
+  })
+
+  test('keeps your usual pace from your own spending, not the lender’s', () => {
+    const alone = poolOf([own], spanStart, spanEnd, now)!
+    const withLent = poolOf([own, lent(null, [[Date.UTC(2026, 9, 30, 14), 90000]])], spanStart, spanEnd, now)!
+    expect(withLent.usualPerDay * 2).toBeCloseTo(alone.usualPerDay, 6)
+  })
+})

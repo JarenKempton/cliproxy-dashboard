@@ -4,7 +4,7 @@ import { ProviderMark } from '../components/ProviderMark'
 import { ConfirmDialog, copyText, PageHead, Switch, toast } from '../components/ui'
 import { formatRelative, formatStamp } from '../lib/format'
 import { providerOf } from '../lib/quota'
-import { addPeer, getSharing, peerConfig, POOLS, removePeer, setSharing, sharingChoices, type Peer, type Pool, type SharingState } from '../lib/sharing'
+import { addPeer, getSharing, peerConfig, POOLS, removePeer, setOwner, setSharing, sharingChoices, type Peer, type Pool, type SharingState } from '../lib/sharing'
 import { useStore } from '../lib/store'
 
 type Networks = Record<'tailnet' | 'lan', { dashboard: string } | null>
@@ -15,6 +15,7 @@ export function SharingPage() {
   const [name, setName] = useState('')
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null)
   const [removing, setRemoving] = useState<Peer | null>(null)
+  const [owner, setOwnerName] = useState('')
   const [picked, setPicked] = useState<Partial<Record<Pool, string>>>({})
   const { files, quotas, now } = useStore()
 
@@ -24,7 +25,20 @@ export function SharingPage() {
       now,
     )
 
-  const load = useCallback(() => getSharing().then(setState).catch((err) => toast(`Couldn’t load sharing: ${err.message}`)), [])
+  const load = useCallback(
+    () =>
+      getSharing()
+        .then((s) => {
+          setState(s)
+          setOwnerName(s.owner)
+        })
+        .catch((err) => toast(`Couldn’t load sharing: ${err.message}`)),
+    [],
+  )
+
+  const saveOwner = () => {
+    if (state && owner.trim() !== state.owner) setOwner(owner).then((r) => setState({ ...state, owner: r.owner })).catch((err) => toast(`Couldn’t save name: ${err.message}`))
+  }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -76,7 +90,19 @@ export function SharingPage() {
 
   return (
     <div className="page">
-      <PageHead title="Sharing" sub="Lend a pool to peers’ proxies when they run out. Off unless you turn it on." />
+      <PageHead title="Sharing" sub="Lend a pool to peers’ proxies when they run out. Off unless you turn it on.">
+        <label className="share-owner faint">
+          Peers see you as
+          <input
+            className="input"
+            placeholder="Your name"
+            value={owner}
+            onChange={(e) => setOwnerName(e.target.value)}
+            onBlur={saveOwner}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          />
+        </label>
+      </PageHead>
 
       <div className="panel klist">
         {POOLS.map((p) => {

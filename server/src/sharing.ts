@@ -3,11 +3,15 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import { eq } from 'drizzle-orm'
+import { listAuthFiles } from '../../src/lib/api'
+import { fetchQuota, providerOf } from '../../src/lib/quota'
+import type { Lender, LenderStatus, LentPool } from '../../src/lib/sharing'
 import type { Db } from './db/client'
-import { poolPeers, poolSharing } from './db/schema'
+import { poolPeers, poolSharing, settings } from './db/schema'
 import { setKeyLabel } from './keys'
 import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
+import { accountHours } from './usage/summary'
 
 export const POOLS = { claude: 'claude', codex: 'codex', grok: 'xai', muse: 'meta' } as const
 export type Pool = keyof typeof POOLS
@@ -18,8 +22,15 @@ export type Sharing = { until: number | null }
 type AuthEntry = { name: string; provider?: string; type?: string; disabled?: boolean; unavailable?: boolean }
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
+const STATUS_TTL_MS = 60e3
+const COST_HISTORY_MS = 14 * 86400e3
+const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
+
+type UpstreamKey = { 'api-key'?: string; 'base-url'?: string; 'api-key-entries'?: { 'api-key'?: string }[] }
 
 export class SharingStore {
+  private status: { at: number; body: LenderStatus } | null = null
+
   constructor(
     private db: Db,
     private proxyUrl: string,
@@ -122,5 +133,71 @@ export class SharingStore {
       }
     }
     return null
+  }
+
+  owner(): string {
+    return this.db.select().from(settings).where(eq(settings.key, 'owner')).get()?.value ?? ''
+  }
+
+  setOwner(name: string) {
+    this.db.insert(settings).values({ key: 'owner', value: name }).onConflictDoUpdate({ target: settings.key, set: { value: name } }).run()
+  }
+
+  // The pools shared right now, with each account's quota windows and recent
+  // hourly cost, so a borrower can fold them into its own burndown.
+  async lenderStatus(now = Date.now()): Promise<LenderStatus> {
+    if (this.status && now - this.status.at < STATUS_TTL_MS) return this.status.body
+    const sharing = this.sharing(now)
+    const shared = (Object.keys(POOLS) as Pool[]).filter((p) => sharing[p])
+    const files = shared.length ? (await listAuthFiles()).filter((f) => !f.disabled) : []
+    const hours = shared.length ? accountHours(this.db, now - COST_HISTORY_MS) : []
+    const pools: LentPool[] = []
+    for (const pool of shared) {
+      const provider = POOLS[pool]
+      const accounts = []
+      for (const f of files.filter((file) => providerOf(file) === provider)) {
+        const quota = await fetchQuota(f).catch(() => null)
+        if (!quota) continue
+        const label = f.email || f.label || f.name
+        const cost = hours.filter((h) => h.provider === provider && h.account === label).map((h): [number, number] => [h.hour, h.costMicros])
+        accounts.push({ windows: quota.windows, cost })
+      }
+      if (accounts.length) pools.push({ pool, provider, until: sharing[pool]!.until, accounts })
+    }
+    const body = { owner: this.owner(), pools }
+    this.status = { at: now, body }
+    return body
+  }
+
+  forgetStatus() {
+    this.status = null
+  }
+
+  // Peers this proxy borrows from, found in its own config as upstreams whose
+  // base-url is a peer's /pool gateway, with what each shares right now.
+  async lenders(): Promise<Lender[]> {
+    const found = new Map<string, { gateway: string; token: string }>()
+    for (const list of ['claude-api-key', 'codex-api-key', 'openai-compatibility']) {
+      const res = await this.management(`/${list}`)
+      if (!res.ok) continue
+      const entries = (((await res.json()) as Record<string, UpstreamKey[] | null>)[list] ?? []) as UpstreamKey[]
+      for (const e of entries) {
+        const gateway = e['base-url']?.match(GATEWAY)?.[1]
+        const tokens = [e['api-key'], ...(e['api-key-entries'] ?? []).map((k) => k['api-key'])].filter((t): t is string => !!t)
+        for (const token of gateway ? tokens : []) found.set(`${gateway}|${token}`, { gateway: gateway!, token })
+      }
+    }
+    return Promise.all(
+      [...found.values()].map(async ({ gateway, token }): Promise<Lender> => {
+        try {
+          const res = await fetch(`${gateway}/pool/status`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15e3) })
+          if (!res.ok) return { gateway, pools: [], error: `HTTP ${res.status}` }
+          const status = (await res.json()) as LenderStatus
+          return { gateway, owner: status.owner || undefined, pools: status.pools }
+        } catch (e) {
+          return { gateway, pools: [], error: (e as Error).message }
+        }
+      }),
+    )
   }
 }
