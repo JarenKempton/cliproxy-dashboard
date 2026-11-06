@@ -15,7 +15,10 @@ import { connectApp } from './http/connect'
 import { MANAGEMENT_PREFIX, managementApp } from './http/management'
 import { startLanListener } from './http/lan'
 import { museRelay } from './http/muse-relay'
+import { poolGateway, poolSettings } from './http/sharing'
+import { SharingStore } from './sharing'
 import { ProxyKeys } from './proxy-keys'
+import { sendManagementVia } from '../../src/lib/api'
 import { Tailnet } from './tailnet'
 import { PriceBook } from './usage/pricing'
 import { repriceMissing } from './usage/reprice'
@@ -38,6 +41,7 @@ const tailnet = new Tailnet(db)
 tailnet.start()
 
 const keys = new ProxyKeys(env.proxyUrl, env.managementKey)
+const pool = new SharingStore(db, env.proxyUrl, env.managementKey)
 const connect = {
   db,
   keys,
@@ -52,10 +56,15 @@ const connect = {
 // The dashboard, its /api and /connect, and the management bridge.
 const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
+const tailnetHosts = [env.tailnetDashboardUrl, env.tailnetProxyUrl].filter((u): u is string => !!u).map((u) => new URL(u).hostname)
+app.route('/', poolSettings(pool, [...env.dashboardHosts, ...tailnetHosts]))
+app.route('/', poolGateway(env.proxyUrl, pool))
 app.route('/connect', connectApp(connect))
 app.route('/history', historyPushApp(db, keys))
 app.route('/history', historySearchApp(new HistorySearch(historyEnv.dbPath, jevFromEnv(historyEnv.typesafeApiKey))))
-app.route(MANAGEMENT_PREFIX, managementApp(env.proxyUrl, env.managementKey, env.allowWrites))
+const bridge = managementApp(env.proxyUrl, env.managementKey, env.allowWrites)
+app.route(MANAGEMENT_PREFIX, bridge)
+sendManagementVia(async (path, init) => bridge.fetch(new Request(`http://bridge${path}`, init)))
 app.route('/', museRelay(env.proxyUrl, env.managementKey, keys))
 if (existsSync(env.staticDir)) {
   app.use('*', serveStatic({ root: env.staticDir }))
@@ -64,4 +73,4 @@ if (existsSync(env.staticDir)) {
 Bun.serve({ hostname: env.host, port: env.port, fetch: app.fetch })
 console.log(`[server] listening on http://${env.host}:${env.port}`)
 
-if (env.lanPort) startLanListener(db, prices, keys, connect, env.proxyUrl, env.managementKey)
+if (env.lanPort) startLanListener(db, prices, keys, connect, env.proxyUrl, env.managementKey, pool)

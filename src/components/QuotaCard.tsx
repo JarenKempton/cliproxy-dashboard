@@ -22,7 +22,9 @@ function level(remaining: number) {
   return remaining < 10 ? 'bad' : remaining < 30 ? 'warn' : 'ok'
 }
 
-function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
+// floor: on a borrowed account, the share its owner keeps, drawn hatched.
+// refills: say when the window refills, as a time, rather than how long until it resets.
+export function WindowRow({ w, now, floor = 0, refills = false }: { w: QuotaWindow; now: number; floor?: number; refills?: boolean }) {
   const remaining = Math.max(0, Math.min(100, 100 - w.usedPercent))
   const pace = paceOf(w, now)
   // Where "remaining" would sit on an even burn; ahead of it means headroom.
@@ -35,14 +37,19 @@ function WindowRow({ w, now }: { w: QuotaWindow; now: number }) {
     <div className="qrow" title={title}>
       <div className="qrow-head">
         <span>{w.label}</span>
-        <span className={`mono qrow-value ${level(remaining)}`}>{Math.round(remaining)}%</span>
+        <span className={`mono qrow-value ${level(remaining - floor)}`}>
+          {floor > 0 ? `${Math.round(Math.max(0, remaining - floor))}% yours` : `${Math.round(remaining)}%`}
+        </span>
       </div>
       <div className={`dbar ${level(remaining)}`} role="meter" aria-label={`${w.label} remaining`} aria-valuenow={Math.round(remaining)} aria-valuemin={0} aria-valuemax={100}>
         {remaining > 0 && <div className="dbar-fill" style={{ width: `${remaining}%` }} />}
+        {floor > 0 && <div className="dbar-floor" style={{ width: `${Math.min(floor, remaining)}%` }} title={`The owner keeps ${floor}%`} />}
         {paceMark !== null && pace.kind !== 'maxed' && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
       </div>
       <div className="qrow-meta mono">
-        <span className="faint">{w.resetAtMs ? `resets ${formatRelative(w.resetAtMs, now)}` : 'not started'}</span>
+        <span className="faint">
+          {!w.resetAtMs ? 'not started' : refills ? `refills ${formatStamp(w.resetAtMs, now)}` : `resets ${formatRelative(w.resetAtMs, now)}`}
+        </span>
         {pace.kind === 'short' && (
           <span className="warn-text" title="At your current rate you'll hit this limit before it resets.">
             Runs out {formatStamp(pace.runsOutAtMs, now)}

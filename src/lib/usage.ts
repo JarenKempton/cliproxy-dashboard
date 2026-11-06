@@ -69,7 +69,8 @@ const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 export const getUsage = (range: Range) => api<UsageSummary>(`/usage?range=${range}&tz=${encodeURIComponent(timeZone())}`)
 export const getDevices = () => api<Device[]>('/devices')
 
-export type AccountHour = { provider: string; account: string; hour: number; costMicros: number }
+// peerMicros: the part peers borrowing this proxy's accounts sent.
+export type AccountHour = { provider: string; account: string; hour: number; costMicros: number; peerMicros: number }
 export const getAccountHours = (days: number) => api<AccountHour[]>(`/account-hours?days=${days}`)
 
 export type AccountActivity = { accountRef: string; requests: number; lastAt: number; machines: { name: string; requests: number }[] }

@@ -1,9 +1,12 @@
 import { RotateCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { BorrowedCard } from '../components/BorrowedCard'
 import { QuotaCard } from '../components/QuotaCard'
 import { Timeline } from '../components/Timeline'
 import { PageHead } from '../components/ui'
 import { formatAgo } from '../lib/format'
+import { lenderName, useSharingOverview } from '../lib/lenders'
+import { PROVIDER_NAMES } from '../lib/quota'
 import { accountStatus } from '../lib/status'
 import { useStore } from '../lib/store'
 import { getActivity, type AccountActivity } from '../lib/usage'
@@ -29,6 +32,20 @@ function useActivity() {
 export function QuotaPage() {
   const { files, quotas, now, refresh } = useStore()
   const activity = useActivity()
+  const sharing = useSharingOverview()
+  const borrowed = sharing.lenders.flatMap((l) =>
+    l.pools
+      .filter((p) => p.until === null || p.until > now)
+      .flatMap((p) =>
+        p.accounts.map((a, i) => ({
+          key: `${l.gateway}|${p.pool}|${i}`,
+          owner: lenderName(l),
+          pool: p,
+          account: a,
+          name: `${lenderName(l)}’s ${PROVIDER_NAMES[p.provider]}${p.accounts.length > 1 ? ` ${i + 1}` : ''}`,
+        })),
+      ),
+  )
   const on = files.filter((f) => !f.disabled)
 
   // The account serving right now: the one with the most recent request,
@@ -52,9 +69,12 @@ export function QuotaPage() {
         {on.map((f) => (
           <QuotaCard key={f.auth_index} file={f} inUse={f === current ? activity.get(f.auth_index) : undefined} />
         ))}
+        {borrowed.map((b) => (
+          <BorrowedCard key={b.key} owner={b.owner} pool={b.pool} account={b.account} name={b.name} now={now} />
+        ))}
       </div>
 
-      <Timeline />
+      <Timeline sharing={sharing} />
     </div>
   )
 }

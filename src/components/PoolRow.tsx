@@ -1,20 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatStamp } from '../lib/format'
 import { PLAN_SLACK, poolOf, type Pool, type PoolAccount, type PoolPoint } from '../lib/pool'
 import { PROVIDER_NAMES } from '../lib/quota'
+import type { Floors, Sharing } from '../lib/sharing'
 import { ProviderMark } from './ProviderMark'
 
+// Measures the element once it mounts, which can be after the first render.
 function useSize() {
-  const ref = useRef<HTMLDivElement>(null)
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   useEffect(() => {
-    const el = ref.current
     if (!el) return
     const observer = new ResizeObserver(() => setSize({ width: el.clientWidth, height: el.clientHeight }))
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
-  return [ref, size] as const
+  }, [el])
+  return [setEl, size] as const
 }
 
 const aroundHour = (t: number, now: number) => formatStamp(Math.round(t / 3600e3) * 3600e3, now)
@@ -26,15 +27,24 @@ function planStatus(pool: Pool, now: number) {
   return { tone: 'warn', text: 'Drops below plan' }
 }
 
+const HOUR_FMT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
+const untilText = (until: number | null, now: number) => (until === null ? 'until turned off' : `until ${formatStamp(until, now)}`)
+
 export function PoolRow({
   provider,
   accounts,
+  borrowed,
+  lending,
+  peerLabel,
   spanStart,
   spanEnd,
   now,
 }: {
   provider: string
   accounts: PoolAccount[]
+  borrowed: { owner: string; until: number | null; floors: Floors }[]
+  lending: (Sharing & { floors: Floors }) | null
+  peerLabel: string
   spanStart: number
   spanEnd: number
   now: number
@@ -42,6 +52,7 @@ export function PoolRow({
   const [ref, { width, height }] = useSize()
   const pool = useMemo(() => poolOf(accounts, spanStart, spanEnd, now), [accounts, spanStart, spanEnd, now])
   const pooled = accounts.length > 1
+  const lentCount = accounts.filter((a) => a.lentUntil !== undefined).length
   if (!pool) return null
   const status = planStatus(pool, now)
   const nextRefill = Math.min(...accounts.map((a) => a.window.resetAtMs).filter((t) => t > now))
@@ -65,6 +76,18 @@ export function PoolRow({
       value: aroundHour(pool.belowPlan.until, now),
     })
   if (nextRefill < Infinity) facts.push({ term: 'Next refill', value: formatStamp(nextRefill, now) })
+  const keptFacts = (term: string, floors: Floors) =>
+    Object.entries(floors)
+      .filter(([, f]) => f > 0)
+      .forEach(([window, f], i) => facts.push({ term: i ? '' : term, value: `${f}% ${window.toLowerCase()}` }))
+  for (const b of borrowed) {
+    facts.push({ term: `From ${b.owner}`, value: untilText(b.until, now) })
+    keptFacts(`${b.owner} keeps`, b.floors)
+  }
+  if (lending) {
+    facts.push({ term: 'Lent to peers', value: untilText(lending.until, now) })
+    keptFacts('You keep', lending.floors)
+  }
   facts.push({
     term: 'Your pace',
     value: `${Math.round(pool.usualPerDay)}%/workday`,
@@ -87,13 +110,13 @@ export function PoolRow({
           {Math.round(pool.left)}
           <span>%</span>
           <small>
-            {pooled ? `left of ${accounts.length} accounts` : 'left this week'} · plan {Math.round(pool.planNow)}%
+            {pooled ? `left of ${accounts.length} accounts${lentCount ? ` (${lentCount} borrowed)` : ''}` : 'left this week'} · plan {Math.round(pool.planNow)}%
           </small>
         </div>
         <span className={`pool-pill ${status.tone}`}>{status.text}</span>
         <dl className="pool-facts">
           {facts.map(({ term, value, tone }) => (
-            <div key={term} className={tone}>
+            <div key={`${term}|${value}`} className={tone}>
               <dt>{term}</dt>
               <dd>{value}</dd>
             </div>
@@ -102,7 +125,7 @@ export function PoolRow({
       </div>
       <div className="tl-track pool-track" ref={ref}>
         {nowPct > 0 && nowPct < 100 && <div className="tl-now tl-now-lane" style={{ left: `${nowPct}%` }} />}
-        {width > 0 && <PoolChart pool={pool} now={now} spanStart={spanStart} spanEnd={spanEnd} width={width} height={height} />}
+        {width > 0 && <PoolChart pool={pool} now={now} spanStart={spanStart} spanEnd={spanEnd} width={width} height={height} peerLabel={peerLabel} />}
         <div className="pool-key mono" aria-hidden="true">
           <span>
             <KeyLine className="pool-line" /> left
@@ -119,6 +142,11 @@ export function PoolRow({
             </svg>{' '}
             below plan
           </span>
+          {pool.peerDrops.length > 0 && (
+            <span>
+              <KeyLine className="pool-line peer" /> {peerLabel}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -143,8 +171,10 @@ function PoolChart({
   spanEnd,
   width,
   height,
+  peerLabel,
 }: {
   pool: Pool
+  peerLabel: string
   now: number
   spanStart: number
   spanEnd: number
@@ -185,6 +215,11 @@ function PoolChart({
       <polyline className="pool-plan" points={points(pool.plan)} />
       <polyline className="pool-line" points={points(pool.past)} />
       <polyline className="pool-line future" points={points(pool.projected)} />
+      {pool.peerDrops.map((d) => (
+        <polyline key={d.from} className="pool-line peer" points={points(pool.past.filter((p) => p.t >= d.from && p.t <= d.to))}>
+          <title>{`${peerLabel}: ${Math.max(1, Math.round(d.points))}% of the pool, ${formatStamp(d.from, now)} – ${HOUR_FMT.format(d.to)}`}</title>
+        </polyline>
+      ))}
       {[100, 50].map((v) => (
         <text key={v} className="pool-grid" x={4} y={y(v) - 3}>
           {v}%

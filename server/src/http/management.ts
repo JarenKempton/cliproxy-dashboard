@@ -144,7 +144,7 @@ function saveQuotaState() {
 }
 
 // config.yaml holds secrets: backups are owner-only and git-ignored.
-function saveBackup(yaml: string) {
+export function saveBackup(yaml: string) {
   mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 })
   const file = `${BACKUP_DIR}/config-${new Date().toISOString().replace(/[:.]/g, '-')}.yaml`
   writeFileSync(file, yaml, { mode: 0o600 })

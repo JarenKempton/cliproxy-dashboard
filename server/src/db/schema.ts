@@ -114,3 +114,28 @@ export const priceOverrides = sqliteTable('price_overrides', {
   cacheWritePerMTok: integer('cache_write_per_mtok'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+// Other people's proxies allowed to borrow from this one while sharing is on.
+// The peer holds a pool token (stored hashed); the gateway forwards with a
+// proxy key of its own per peer, so the peer never holds a proxy key and its
+// usage shows under that key.
+export const poolPeers = sqliteTable('pool_peers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().unique(),
+  tokenHash: text('token_hash').notNull().unique(),
+  proxyKey: text('proxy_key').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+// Which pools ('claude', 'codex', 'grok', 'muse') are lent out, and until
+// when. Absent means not shared; a null `until` means until turned off.
+export const poolSharing = sqliteTable('pool_sharing', {
+  pool: text('pool').primaryKey(),
+  until: integer('until', { mode: 'timestamp_ms' }),
+})
+
+// Small named values set from the dashboard, e.g. 'owner': the name peers see.
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+})

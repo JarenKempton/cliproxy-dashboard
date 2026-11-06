@@ -303,3 +303,81 @@
   color: var(--fg);
   box-shadow: 0 12px 32px oklch(0 0 0 / 0.5);
 }
+
+/* Sharing ------------------------------------------------------------------- */
+
+.peer-config {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.share-when {
+  min-width: 0;
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.share-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-when select {
+  width: min(100%, 300px);
+}
+
+.share-when .share-floor {
+  width: min(100%, 170px);
+}
+
+.share-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.share-owner .input {
+  width: 160px;
+}
+
+.share-keep {
+  margin-left: 6px;
+}
+
+.invite {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+}
+
+.invite-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invite-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lenders {
+  margin-top: 10px;
+}
+
+.btn-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}

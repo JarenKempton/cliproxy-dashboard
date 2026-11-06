@@ -9,7 +9,7 @@
 // - Days are the viewer's local days; "7d" means today and the 6 days before;
 //   "all" starts on the day of the earliest stored request.
 
-import { and, eq, gte, isNotNull, min, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNotNull, min, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { Db } from '../db/client'
 import { machineIdentities, machines, requests, tailnetDevices } from '../db/schema'
@@ -254,11 +254,21 @@ export type UsageSummary = ReturnType<typeof usageSummary>
 
 // Proxy cost per upstream account and hour, keyed by provider and account
 // label: re-adding an account gives it a new auth index but keeps its label.
-export function accountHours(db: Db, sinceMs: number) {
+// peerMicros is the part sent with the given proxy keys (peers borrowing).
+export function accountHours(db: Db, sinceMs: number, peerKeyHashes: string[] = []) {
   const hour = sql<number>`(${requests.occurredAt} / ${HOUR}) * ${HOUR}`
   const provider = sql<string>`lower(${requests.provider})`
+  const byPeers = peerKeyHashes.length
+    ? sql<number>`coalesce(sum(case when ${inArray(requests.clientKeyHash, peerKeyHashes)} then ${requests.costMicros} end), 0)`
+    : sql<number>`0`
   return db
-    .select({ provider, account: sql<string>`${requests.accountLabel}`, hour, costMicros: sql<number>`coalesce(sum(${requests.costMicros}), 0)` })
+    .select({
+      provider,
+      account: sql<string>`${requests.accountLabel}`,
+      hour,
+      costMicros: sql<number>`coalesce(sum(${requests.costMicros}), 0)`,
+      peerMicros: byPeers,
+    })
     .from(requests)
     .where(and(eq(requests.source, 'cliproxy'), gte(requests.occurredAt, new Date(sinceMs)), isNotNull(requests.accountLabel)))
     .groupBy(provider, requests.accountLabel, hour)
