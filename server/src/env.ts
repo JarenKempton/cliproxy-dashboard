@@ -33,6 +33,12 @@ export const env = {
   // Overrides when the dashboard and proxy are on different tailnet machines.
   tailnetDashboardUrl: process.env.TAILNET_DASHBOARD_URL,
   tailnetProxyUrl: process.env.TAILNET_PROXY_URL,
+  // Other names the dashboard is reached by (a reverse proxy, a LAN host
+  // name), comma-separated. Loopback, IPs and *.ts.net are always accepted.
+  dashboardHosts: (process.env.DASHBOARD_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean),
 
   // Built dashboard (`npm run build`); served when present.
   staticDir: process.env.DASHBOARD_DIST ?? 'dist',

@@ -87,11 +87,11 @@ export function poolGateway(target: string, pool: SharingStore) {
 }
 
 // Hosts this dashboard is reached by: loopback, an IP, its Tailscale name, or
-// one configured. Anything else is a page whose name was pointed at this
+// one configured (DASHBOARD_HOSTS, the Tailscale URLs). Anything else is a page whose name was pointed at this
 // machine (DNS rebinding), which the browser would treat as same-origin.
 export function trustedHost(hostname: string, extra: string[] = []) {
   const name = hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  return name === 'localhost' || /^[\d.]+$/.test(name) || name.includes(':') || name.endsWith('.ts.net') || extra.includes(name)
+  return name === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(name) || name.includes(':') || name.endsWith('.ts.net') || extra.includes(name)
 }
 
 export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {

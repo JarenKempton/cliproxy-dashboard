@@ -55,7 +55,8 @@ const connect = {
 // The dashboard, its /api and /connect, and the management bridge.
 const app = new Hono()
 app.route('/', createApp(db, collector, prices, tailnet))
-app.route('/', poolSettings(pool, [env.tailnetDashboardUrl, env.tailnetProxyUrl].filter((u): u is string => !!u).map((u) => new URL(u).hostname)))
+const tailnetHosts = [env.tailnetDashboardUrl, env.tailnetProxyUrl].filter((u): u is string => !!u).map((u) => new URL(u).hostname)
+app.route('/', poolSettings(pool, [...env.dashboardHosts, ...tailnetHosts]))
 app.route('/', poolGateway(env.proxyUrl, pool))
 app.route('/connect', connectApp(connect))
 app.route('/history', historyPushApp(db, keys))
