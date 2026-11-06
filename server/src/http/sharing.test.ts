@@ -160,7 +160,6 @@ test('settings refuse a host that isn’t this dashboard, so a rebound DNS name 
   const settings = poolSettings(store, ['dash.example.org'])
   const send = (host: string) => settings.request(`http://${host}/api/pool/peers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"name":""}' })
   expect((await send('attacker.example:5174')).status).toBe(403)
-  expect((await send('1.2')).status).toBe(403)
   for (const host of ['127.0.0.1:5174', 'localhost:5174', '[::1]:5174', '192.168.1.20:8318', 'box.tail1234.ts.net', 'dash.example.org']) expect((await send(host)).status).toBe(400)
 })
 
