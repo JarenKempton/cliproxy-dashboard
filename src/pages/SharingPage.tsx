@@ -1,6 +1,7 @@
 import { Copy, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ProviderMark } from '../components/ProviderMark'
+import { ShareSetup, type Draft } from '../components/ShareSetup'
 import { ConfirmDialog, copyText, PageHead, Switch, toast } from '../components/ui'
 import { formatRelative, formatStamp } from '../lib/format'
 import { providerOf } from '../lib/quota'
@@ -9,6 +10,7 @@ import {
   getLenders,
   getSharing,
   joinPeer,
+  describeFloors,
   peerConfig,
   POOLS,
   removePeer,
@@ -23,8 +25,6 @@ import {
 } from '../lib/sharing'
 import { lenderName } from '../lib/lenders'
 import { useStore } from '../lib/store'
-
-const FLOORS = [0, 10, 20, 30, 40, 50, 60, 70]
 
 type Networks = Record<'tailnet' | 'lan', { dashboard: string } | null>
 
@@ -43,7 +43,7 @@ export function SharingPage() {
   const [lenders, setLenders] = useState<Lender[] | null>(null)
   const [removing, setRemoving] = useState<Peer | null>(null)
   const [owner, setOwnerName] = useState('')
-  const [picked, setPicked] = useState<Partial<Record<Pool, string>>>({})
+  const [drafts, setDrafts] = useState<Partial<Record<Pool, Draft>>>({})
   const { files, quotas, now, loaded } = useStore()
   // Only pools you have an account for, plus any still shared so it can be stopped.
   const pools = POOLS.filter((p) => files.some((f) => providerOf(f) === p.provider) || state?.sharing[p.id])
@@ -108,13 +108,20 @@ export function SharingPage() {
     }
   }
 
-  const keep = async (pool: Pool, window: string, percent: number) => {
+  const startDraft = (pool: Pool) => setDrafts({ ...drafts, [pool]: { choice: '', floors: { ...(state?.floors[pool] ?? {}) } } })
+
+  const start = async (pool: Pool, until: number | null) => {
     if (!state) return
+    const draft = drafts[pool]!
     try {
-      const { floors } = await setFloor(pool, window, percent)
-      setState({ ...state, floors })
+      let floors = state.floors
+      for (const [w, percent] of Object.entries(draft.floors))
+        if ((state.floors[pool]?.[w] ?? 0) !== percent) floors = (await setFloor(pool, w, percent)).floors
+      const { sharing } = await setSharing(pool, until)
+      setState({ ...state, sharing, floors })
+      setDrafts({ ...drafts, [pool]: undefined })
     } catch (err) {
-      toast(`Couldn’t change what you keep: ${(err as Error).message}`)
+      toast(`Couldn’t start sharing: ${(err as Error).message}`)
     }
   }
 
@@ -177,56 +184,44 @@ export function SharingPage() {
       {loaded && pools.length === 0 && <div className="empty">No accounts to share yet. Add one on the Accounts page.</div>}
       <div className="panel klist">
         {pools.map((p) => {
-          const choices = choicesFor(p.provider)
-          const choice = choices.find((c) => c.id === picked[p.id]) ?? choices[0]
           const shared = state?.sharing[p.id]
           const current = shared && (shared.until === null || shared.until > now) ? shared : null
+          const kept = describeFloors(state?.floors[p.id] ?? {})
           return (
             <div key={p.id} className="krow share-row">
               <span className="krow-key">
                 <ProviderMark of={p.id} />
                 {p.label}
               </span>
-              <span className="share-when">
-                {current ? (
-                  <span className="mono">
-                    {current.until === null
-                      ? 'Shared until you turn it off'
-                      : `Shared until ${formatStamp(current.until, now)} · ${formatRelative(current.until, now).replace('in ', '')} left`}
-                  </span>
-                ) : (
-                  <select
-                    className="input"
-                    aria-label={`How long to share ${p.label}`}
-                    value={choice.id}
-                    onChange={(e) => setPicked({ ...picked, [p.id]: e.target.value })}
-                  >
-                    {choices.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {windowsFor(p.provider, state?.floors[p.id] ?? {}).length > 0 && <span className="faint share-keep">Keep for me</span>}
-                {windowsFor(p.provider, state?.floors[p.id] ?? {}).map((w) => (
-                  <select
-                    key={w}
-                    className="input share-floor"
-                    aria-label={`Share of the ${p.label} ${w} window to keep for yourself`}
-                    value={state?.floors[p.id]?.[w] ?? 0}
-                    disabled={!state}
-                    onChange={(e) => keep(p.id, w, Number(e.target.value))}
-                  >
-                    {FLOORS.map((f) => (
-                      <option key={f} value={f}>
-                        {w}: {f ? `${f}%` : 'none'}
-                      </option>
-                    ))}
-                  </select>
-                ))}
+              <span className="share-when mono">
+                {current
+                  ? [
+                      current.until === null
+                        ? 'Shared until you turn it off'
+                        : `Shared until ${formatStamp(current.until, now)} · ${formatRelative(current.until, now).replace('in ', '')} left`,
+                      kept && `keeping ${kept}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : !drafts[p.id] && <span className="faint">Not shared</span>}
               </span>
-              <Switch on={!!current} label={`Share ${p.label}`} disabled={!state} onChange={() => share(p.id, current ? false : choice.until)} />
+              <Switch
+                on={!!current || !!drafts[p.id]}
+                label={`Share ${p.label}`}
+                disabled={!state}
+                onChange={() => (current ? share(p.id, false) : drafts[p.id] ? setDrafts({ ...drafts, [p.id]: undefined }) : startDraft(p.id))}
+              />
+              {!current && drafts[p.id] && (
+                <ShareSetup
+                  label={p.label}
+                  choices={choicesFor(p.provider)}
+                  windows={windowsFor(p.provider, drafts[p.id]!.floors)}
+                  draft={drafts[p.id]!}
+                  onChange={(d) => setDrafts({ ...drafts, [p.id]: d })}
+                  onCancel={() => setDrafts({ ...drafts, [p.id]: undefined })}
+                  onStart={(until) => start(p.id, until)}
+                />
+              )}
             </div>
           )
         })}
