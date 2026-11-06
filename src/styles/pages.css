@@ -381,3 +381,7 @@
   font: inherit;
   cursor: pointer;
 }
+
+.klist:empty {
+  display: none;
+}

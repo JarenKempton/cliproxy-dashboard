@@ -44,7 +44,9 @@ export function SharingPage() {
   const [removing, setRemoving] = useState<Peer | null>(null)
   const [owner, setOwnerName] = useState('')
   const [picked, setPicked] = useState<Partial<Record<Pool, string>>>({})
-  const { files, quotas, now } = useStore()
+  const { files, quotas, now, loaded } = useStore()
+  // Only pools you have an account for, plus any still shared so it can be stopped.
+  const pools = POOLS.filter((p) => files.some((f) => providerOf(f) === p.provider) || state?.sharing[p.id])
 
   // The quota windows this pool's accounts report, plus any already kept.
   const windowsFor = (provider: string, kept: Record<string, number>) => [
@@ -172,14 +174,15 @@ export function SharingPage() {
         </label>
       </PageHead>
 
+      {loaded && pools.length === 0 && <div className="empty">No accounts to share yet. Add one on the Accounts page.</div>}
       <div className="panel klist">
-        {POOLS.map((p) => {
+        {pools.map((p) => {
           const choices = choicesFor(p.provider)
           const choice = choices.find((c) => c.id === picked[p.id]) ?? choices[0]
           const shared = state?.sharing[p.id]
           const current = shared && (shared.until === null || shared.until > now) ? shared : null
           return (
-            <div key={p.id} className="krow">
+            <div key={p.id} className="krow share-row">
               <span className="krow-key">
                 <ProviderMark of={p.id} />
                 {p.label}
@@ -240,7 +243,7 @@ export function SharingPage() {
         </div>
         <div className="panel klist">
           {state?.peers.map((peer) => (
-            <div key={peer.id} className="krow">
+            <div key={peer.id} className="krow peer-row">
               <span>{peer.name}</span>
               <span className="mono faint">
                 added {formatRelative(peer.createdAt)} · usage under key “Pool: {peer.name}”
