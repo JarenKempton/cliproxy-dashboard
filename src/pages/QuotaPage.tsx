@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 import { BorrowedCard } from '../components/BorrowedCard'
 import { QuotaCard } from '../components/QuotaCard'
 import { Timeline } from '../components/Timeline'
-import { PageHead } from '../components/ui'
+import { PageHead, toast } from '../components/ui'
 import { formatAgo } from '../lib/format'
 import { lenderName, useSharingOverview } from '../lib/lenders'
 import { PROVIDER_NAMES } from '../lib/quota'
+import { pauseLender } from '../lib/sharing'
 import { accountStatus } from '../lib/status'
 import { useStore } from '../lib/store'
 import { getActivity, type AccountActivity } from '../lib/usage'
@@ -39,6 +40,7 @@ export function QuotaPage() {
       .flatMap((p) =>
         p.accounts.map((a, i) => ({
           key: `${l.gateway}|${p.pool}|${i}`,
+          lender: l,
           owner: lenderName(l),
           pool: p,
           account: a,
@@ -47,6 +49,14 @@ export function QuotaPage() {
       ),
   )
   const on = files.filter((f) => !f.disabled)
+  const [pausing, setPausing] = useState<string | null>(null)
+  const pause = (gateway: string, paused: boolean) => {
+    setPausing(gateway)
+    pauseLender(gateway, paused)
+      .then(sharing.reload)
+      .catch((e: Error) => toast(`Couldn’t ${paused ? 'pause' : 'resume'} borrowing: ${e.message}`))
+      .finally(() => setPausing(null))
+  }
 
   // The account serving right now: the one with the most recent request,
   // among accounts that are on and not cooling down or at a limit.
@@ -70,7 +80,17 @@ export function QuotaPage() {
           <QuotaCard key={f.auth_index} file={f} inUse={f === current ? activity.get(f.auth_index) : undefined} />
         ))}
         {borrowed.map((b) => (
-          <BorrowedCard key={b.key} owner={b.owner} pool={b.pool} account={b.account} name={b.name} now={now} />
+          <BorrowedCard
+            key={b.key}
+            owner={b.owner}
+            pool={b.pool}
+            account={b.account}
+            name={b.name}
+            now={now}
+            paused={b.lender.paused}
+            busy={pausing === b.lender.gateway}
+            onPause={(paused) => pause(b.lender.gateway, paused)}
+          />
         ))}
       </div>
 

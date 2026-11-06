@@ -319,7 +319,10 @@ export function SharingPage() {
             <div className="panel klist">
               {lenders.map((l) => (
                 <div key={l.gateway} className="krow">
-                  <span>{lenderName(l)}</span>
+                  <span>
+                    {lenderName(l)}
+                    {l.paused && <span className="faint"> · paused</span>}
+                  </span>
                   <span className="mono faint">
                     {l.error
                       ? `can’t reach them (${l.error})`
