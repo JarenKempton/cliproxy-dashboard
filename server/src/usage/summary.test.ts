@@ -88,6 +88,24 @@ describe('usage provider attribution', () => {
   })
 })
 
+describe('usage windows', () => {
+  test('buckets the week by hour from local midnight six days ago', () => {
+    const db = fixture([
+      { occurredAt: new Date(Date.UTC(2026, 9, 8, 5, 59)) },
+      { occurredAt: new Date(Date.UTC(2026, 9, 8, 6, 5)) },
+      { occurredAt: new Date(Date.UTC(2026, 9, 14, 9, 15)) },
+      { occurredAt: new Date(Date.UTC(2026, 9, 14, 9, 45)) },
+    ])
+    const summary = usageSummary(db, '7d', 'America/Denver', now)
+    expect(summary.bucket).toBe('hour')
+    expect(summary.series[0].key).toBe(Date.UTC(2026, 9, 8, 6))
+    expect(summary.series.at(-1)?.key).toBe(Date.UTC(2026, 9, 14, 12))
+    expect(summary.series).toHaveLength(6 * 24 + 7)
+    expect(summary.totals.records).toBe(3)
+    expect(summary.series.find((b) => b.key === Date.UTC(2026, 9, 14, 9))?.providers.openai?.costMicros).toBe(2000)
+  })
+})
+
 describe('account hours', () => {
   test('sums proxy cost per provider, account label and hour', () => {
     const hour = Math.floor(now / 3600e3) * 3600e3

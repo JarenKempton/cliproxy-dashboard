@@ -98,6 +98,31 @@ export async function hashKey(key: string): Promise<string> {
     .slice(0, 16)
 }
 
+// Local calendar day ("YYYY-MM-DD") of each series bucket.
+export function bucketDay(summary: UsageSummary): (key: number | string) => string {
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: summary.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+  return (key) => (typeof key === 'string' ? key : fmt.format(key))
+}
+
+// The series rolled up to local days; series that are already daily pass through.
+export function dailySeries(summary: UsageSummary): UsageSummary['series'] {
+  if (summary.bucket === 'day' || summary.range === '24h') return summary.series
+  const dayOf = bucketDay(summary)
+  const days = new Map<string, UsageSummary['series'][number]>()
+  for (const b of summary.series) {
+    const day = days.get(dayOf(b.key)) ?? { key: dayOf(b.key), providers: {}, machines: {} }
+    for (const group of ['providers', 'machines'] as const) {
+      for (const [name, p] of Object.entries(b[group])) {
+        const sum = (day[group][name] ??= { costMicros: 0, tokens: 0 })
+        sum.costMicros += p.costMicros
+        sum.tokens += p.tokens
+      }
+    }
+    days.set(day.key as string, day)
+  }
+  return [...days.values()]
+}
+
 // --- Providers ---------------------------------------------------------------------
 
 // Fixed order and colors, so a provider keeps its color whatever else is shown.
