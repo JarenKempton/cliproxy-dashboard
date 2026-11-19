@@ -17,7 +17,7 @@ type ReadWindows = (f: AuthFile) => Promise<QuotaWindow[]>
 
 // When the account's soonest weekly-or-longer window resets; Infinity if unknown.
 export const weeklyReset = (windows: QuotaWindow[]) =>
-  Math.min(...windows.filter((w) => w.periodMs >= DAY && w.resetAtMs !== null).map((w) => w.resetAtMs!))
+  Math.min(...windows.filter((w) => w.periodMs >= DAY && w.resetAtMs !== null && w.resetAtMs > Date.now()).map((w) => w.resetAtMs!))
 
 // Priority by account name: 1 for the latest reset up to the most for the
 // soonest, equal resets sharing one; 0 when the reset is unknown.
@@ -30,6 +30,7 @@ export class Drain {
   // The last weekly reset read per account, so a rate-limited read doesn't
   // drop an account to the bottom.
   private resets = new Map<string, number>()
+  private pending = Promise.resolve()
 
   constructor(
     private db: Db,
@@ -42,12 +43,22 @@ export class Drain {
     return this.db.select().from(settings).where(eq(settings.key, SETTING)).get()?.value === '1'
   }
 
-  async set(on: boolean) {
-    const value = on ? '1' : '0'
-    this.db.insert(settings).values({ key: SETTING, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
-    if (on) return this.apply()
-    const files = await listAuthFiles()
-    await this.write(files, new Map(files.map((f) => [f.name, 0])))
+  set(on: boolean) {
+    return this.enqueue(async () => {
+      if (on) await this.applyNow()
+      else {
+        const files = await listAuthFiles()
+        await this.write(files, new Map(files.map((f) => [f.name, 0])))
+      }
+      const value = on ? '1' : '0'
+      this.db.insert(settings).values({ key: SETTING, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
+    })
+  }
+
+  private enqueue(operation: () => Promise<void>) {
+    const result = this.pending.then(operation)
+    this.pending = result.catch(() => {})
+    return result
   }
 
   start() {
@@ -56,13 +67,19 @@ export class Drain {
     setInterval(run, EVERY_MS)
   }
 
-  async apply() {
-    if (!this.on()) return
+  apply() {
+    return this.enqueue(async () => {
+      if (this.on()) await this.applyNow()
+    })
+  }
+
+  private async applyNow() {
     const files = (await listAuthFiles()).filter((f) => !f.disabled)
     for (const f of files) {
       const windows = await this.readWindows(f).catch(() => null)
-      const reset = windows ? weeklyReset(windows) : Infinity
-      if (Number.isFinite(reset) || !this.resets.has(f.name)) this.resets.set(f.name, reset)
+      const previous = this.resets.get(f.name) ?? Infinity
+      const reset = windows === null ? previous : weeklyReset(windows)
+      this.resets.set(f.name, reset > Date.now() ? reset : Infinity)
     }
     await this.write(files, rank(new Map(files.map((f) => [f.name, this.resets.get(f.name)!]))))
   }

@@ -72,6 +72,36 @@ test('a quota read that fails keeps the account where it was', async () => {
   expect(files.find((f) => f.name === 'curt-1')?.priority).toBe(3)
 })
 
+test('a successful reading with no weekly reset clears the previous rank', async () => {
+  await drain.set(true)
+  windows['curt-1'] = []
+  await drain.apply()
+  expect(files.find((f) => f.name === 'curt-1')?.priority).toBe(0)
+})
+
+test('expired reset times do not outrank future resets', async () => {
+  windows['curt-1'] = weekly(-1)
+  await drain.set(true)
+  expect(files.find((f) => f.name === 'curt-1')?.priority ?? 0).toBe(0)
+})
+
+test('turning off during a quota read cannot leave priorities enabled', async () => {
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const concurrent = new Drain(db, proxy.url.origin, 'management', async (f) => {
+    entered.resolve()
+    await release.promise
+    return windows[f.name] ?? []
+  })
+  const enabling = concurrent.set(true)
+  await entered.promise
+  const disabling = concurrent.set(false)
+  release.resolve()
+  await Promise.all([enabling, disabling])
+  expect(concurrent.on()).toBe(false)
+  expect(files.every((f) => (f.priority ?? 0) === 0)).toBe(true)
+})
+
 test('turning it off clears every priority and stops ranking', async () => {
   await drain.set(true)
   await drain.set(false)
