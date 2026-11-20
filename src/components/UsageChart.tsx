@@ -4,7 +4,7 @@
 // Fills use the dot-matrix pattern; strokes stay solid.
 
 import { useEffect, useRef, useState } from 'react'
-import { byProviderOrder, formatTokens, formatUsd, providerColor, providerLabel, type UsageSummary } from '../lib/usage'
+import { bucketDay, byProviderOrder, formatTokens, formatUsd, providerColor, providerLabel, type UsageSummary } from '../lib/usage'
 
 const HEIGHT = 224
 const AXIS_W = 64 // y-axis label column
@@ -64,7 +64,7 @@ function monotonePath(points: Point[]): string {
 const dayKeyFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 const weekdayFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' })
 const hourFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric' })
-const hourLongFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })
+const hourLongFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric' })
 
 export function bucketLabel(key: number | string, long = false) {
   if (typeof key === 'string') return dayKeyFmt.format(new Date(`${key}T00:00:00Z`))
@@ -114,6 +114,15 @@ function linesFor(summary: UsageSummary, by: ChartGroup, valueOf: (p?: { costMic
   return lines
 }
 
+// Index of each local day's first bucket, for day dividers and labels.
+function dayStarts(summary: UsageSummary) {
+  const dayOf = bucketDay(summary)
+  return summary.series.flatMap((b, index) => {
+    const day = dayOf(b.key)
+    return index === 0 || day !== dayOf(summary.series[index - 1].key) ? [{ index, day }] : []
+  })
+}
+
 export function UsageChart({ summary, metric, by }: { summary: UsageSummary; metric: Metric; by: ChartGroup }) {
   const [ref, width] = useWidth<HTMLDivElement>()
   const [hover, setHover] = useState<number | null>(null)
@@ -141,8 +150,8 @@ export function UsageChart({ summary, metric, by }: { summary: UsageSummary; met
     setHover(i >= 0 && i < count ? i : null)
   }
 
-  const showWeekdays = summary.range === '7d'
-  const labels = showWeekdays ? summary.series.map((_, i) => i) : count ? [0, Math.floor((count - 1) / 2), count - 1] : []
+  const days = summary.range === '7d' ? dayStarts(summary) : []
+  const labels = count ? [0, Math.floor((count - 1) / 2), count - 1] : []
   const hovered = hover === null ? null : summary.series[hover]
 
   return (
@@ -196,6 +205,10 @@ export function UsageChart({ summary, metric, by }: { summary: UsageSummary; met
               />
             ))}
 
+            {days.slice(1).map((d) => (
+              <line key={d.index} className="grid" x1={x(d.index)} x2={x(d.index)} y1={PAD_TOP} y2={y(0)} />
+            ))}
+
             {hover !== null && <line className="crosshair" x1={x(hover)} x2={x(hover)} y1={PAD_TOP} y2={y(0)} />}
           </svg>
         )}
@@ -216,13 +229,21 @@ export function UsageChart({ summary, metric, by }: { summary: UsageSummary; met
           </div>
         )}
       </div>
-      <div className="uchart-x mono">
-        {labels.map((i) => (
-          <span key={i}>
-            {showWeekdays ? weekdayFmt.format(new Date(`${summary.series[i].key}T00:00:00Z`)) : bucketLabel(summary.series[i].key)}
-          </span>
-        ))}
-      </div>
+      {days.length ? (
+        <div className="uchart-x uchart-x-days mono">
+          {days.map((d, i) => (
+            <span key={d.index} style={{ left: (x(d.index) + x(days[i + 1]?.index ?? count - 1)) / 2 }}>
+              {weekdayFmt.format(new Date(`${d.day}T00:00:00Z`))}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="uchart-x mono">
+          {labels.map((i) => (
+            <span key={i}>{bucketLabel(summary.series[i].key)}</span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

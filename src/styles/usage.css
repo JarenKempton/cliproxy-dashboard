@@ -111,6 +111,18 @@
   color: var(--fg-3);
 }
 
+.uchart-x-days {
+  position: relative;
+  height: 1.6em;
+  padding: 0;
+}
+
+.uchart-x-days span {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+}
+
 .crosshair {
   stroke: var(--fg-3);
   stroke-width: 1;
