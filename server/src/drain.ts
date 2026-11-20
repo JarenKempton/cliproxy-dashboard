@@ -17,7 +17,7 @@ type ReadWindows = (f: AuthFile) => Promise<QuotaWindow[]>
 
 // When the account's soonest weekly-or-longer window resets; Infinity if unknown.
 export const weeklyReset = (windows: QuotaWindow[]) =>
-  Math.min(...windows.filter((w) => w.periodMs >= DAY && w.resetAtMs !== null && w.resetAtMs > Date.now()).map((w) => w.resetAtMs!))
+  Math.min(...windows.filter((w) => w.periodMs >= 7 * DAY && w.resetAtMs !== null && w.resetAtMs > Date.now()).map((w) => w.resetAtMs!))
 
 // Priority by account name: 1 for the latest reset up to the most for the
 // soonest, equal resets sharing one; 0 when the reset is unknown.
@@ -45,13 +45,15 @@ export class Drain {
 
   set(on: boolean) {
     return this.enqueue(async () => {
-      if (on) await this.applyNow()
+      const save = () => {
+        const value = on ? '1' : '0'
+        this.db.insert(settings).values({ key: SETTING, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
+      }
+      if (on) await this.applyNow(save)
       else {
         const files = await listAuthFiles()
-        await this.write(files, new Map(files.map((f) => [f.name, 0])))
+        await this.write(files, new Map(files.map((f) => [f.name, 0])), save)
       }
-      const value = on ? '1' : '0'
-      this.db.insert(settings).values({ key: SETTING, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run()
     })
   }
 
@@ -73,7 +75,7 @@ export class Drain {
     })
   }
 
-  private async applyNow() {
+  private async applyNow(save?: () => void) {
     const files = (await listAuthFiles()).filter((f) => !f.disabled)
     for (const f of files) {
       const windows = await this.readWindows(f).catch(() => null)
@@ -81,18 +83,24 @@ export class Drain {
       const reset = windows === null ? previous : weeklyReset(windows)
       this.resets.set(f.name, reset > Date.now() ? reset : Infinity)
     }
-    await this.write(files, rank(new Map(files.map((f) => [f.name, this.resets.get(f.name)!]))))
+    const now = Date.now()
+    const resets = new Map(files.map((f) => {
+      const reset = this.resets.get(f.name) ?? Infinity
+      return [f.name, reset > now ? reset : Infinity] as const
+    }))
+    await this.write(files, rank(resets), save)
   }
 
-  private async write(files: AuthFile[], priorities: Map<string, number>) {
+  private async write(files: AuthFile[], priorities: Map<string, number>, save?: () => void) {
     const written: AuthFile[] = []
     try {
       for (const f of files) {
         const priority = priorities.get(f.name) ?? 0
         if ((f.priority ?? 0) === priority) continue
-        await this.patchPriority(f.name, priority)
         written.push(f)
+        await this.patchPriority(f.name, priority)
       }
+      save?.()
     } catch (error) {
       const rollback = await Promise.allSettled(written.map((f) => this.patchPriority(f.name, f.priority ?? 0)))
       const failures = rollback.filter((r) => r.status === 'rejected')

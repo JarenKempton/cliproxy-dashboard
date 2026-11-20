@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, expect, spyOn, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +17,7 @@ let files: AuthFile[] = []
 let patches: { name: string; priority: number }[] = []
 let windows: Record<string, QuotaWindow[] | null> = {}
 let refusePriorityName: string | null = null
+let commitThenFailName: string | null = null
 
 const proxy = Bun.serve({
   hostname: '127.0.0.1',
@@ -27,8 +28,9 @@ const proxy = Bun.serve({
     if (url.pathname === '/v0/management/auth-files/fields' && req.method === 'PATCH') {
       const patch = (await req.json()) as { name: string; priority: number }
       patches.push(patch)
-      if (patch.name === refusePriorityName) return new Response('unavailable', { status: 503 })
+      if (patch.name === refusePriorityName) { refusePriorityName = null; return new Response('unavailable', { status: 503 }) }
       files = files.map((f) => (f.name === patch.name ? { ...f, priority: patch.priority } : f))
+      if (patch.name === commitThenFailName) { commitThenFailName = null; return new Response('persist failed after update', { status: 500 }) }
       return Response.json({ status: 'ok' })
     }
     return new Response('nope', { status: 404 })
@@ -49,6 +51,7 @@ const drain = new Drain(db, proxy.url.origin, 'management', async (f) => {
 
 beforeEach(async () => {
   refusePriorityName = null
+  commitThenFailName = null
   files = ['curt-1', 'curt-2', 'curt-3', 'fresh', 'off'].map((name) => ({ name, auth_index: name, provider: 'claude', disabled: name === 'off' }))
   windows = { 'curt-1': weekly(4), 'curt-2': weekly(60), 'curt-3': weekly(130), fresh: [], off: weekly(1) }
   await drain.set(false)
@@ -123,4 +126,47 @@ test('turning it off clears every priority and stops ranking', async () => {
   expect(files.every((f) => (f.priority ?? 0) === 0)).toBe(true)
   await drain.apply()
   expect(files.every((f) => (f.priority ?? 0) === 0)).toBe(true)
+})
+
+
+test('daily windows cannot outrank a weekly reset', async () => {
+  windows['curt-1'] = [{ id: 'daily', label: 'Daily', periodMs: 24 * HOUR, resetAtMs: Date.now() + HOUR, usedPercent: 50 }]
+  await drain.set(true)
+  expect(files.find((f) => f.name === 'curt-1')?.priority ?? 0).toBe(0)
+})
+
+test('cached resets expiring during later quota reads are excluded before ranking', async () => {
+  let clock = Date.now()
+  const time = spyOn(Date, 'now').mockImplementation(() => clock)
+  let refresh = false
+  const cached = new Drain(db, proxy.url.origin, 'management', async (file) => {
+    if (refresh && file.name === 'curt-1') throw new Error('rate limited')
+    if (refresh && file.name === 'curt-2') clock += 10000
+    if (file.name === 'curt-1') return [{ id: 'weekly', label: 'Weekly', usedPercent: 50, resetAtMs: clock + 1000, periodMs: 168 * HOUR }]
+    return weekly(60)
+  })
+  try {
+    await cached.set(true)
+    refresh = true
+    await cached.apply()
+    expect(files.find((f) => f.name === 'curt-1')?.priority).toBe(0)
+  } finally { time.mockRestore() }
+})
+
+test('an uncertain failed PATCH restores that account as well as preceding writes', async () => {
+  files = files.slice(0, 2).map((file, i) => ({ ...file, priority: i + 7 }))
+  commitThenFailName = 'curt-2'
+  await expect(drain.set(true)).rejects.toThrow('HTTP 500')
+  expect(drain.on()).toBe(false)
+  expect(files.map((file) => file.priority)).toEqual([7, 8])
+})
+
+test('a rejected settings save restores all changed priorities and keeps the switch off', async () => {
+  files = files.slice(0, 2).map((file, i) => ({ ...file, priority: i + 7 }))
+  db.$client.exec("CREATE TRIGGER refuse_drain BEFORE INSERT ON settings WHEN NEW.key = 'drain-soonest' AND NEW.value = '1' BEGIN SELECT RAISE(FAIL, 'settings rejected'); END")
+  try {
+    await expect(drain.set(true)).rejects.toThrow()
+    expect(drain.on()).toBe(false)
+    expect(files.map((file) => file.priority)).toEqual([7, 8])
+  } finally { db.$client.exec('DROP TRIGGER refuse_drain') }
 })

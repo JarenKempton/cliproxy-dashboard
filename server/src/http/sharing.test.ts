@@ -74,6 +74,7 @@ const gateway = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: poolGateway(u
 const token = await store.addPeer('Curt')
 
 afterAll(() => {
+  sendManagementVia((path, init) => fetch(path, init))
   gateway.stop(true)
   upstream.stop(true)
 })
