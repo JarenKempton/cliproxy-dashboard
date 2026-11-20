@@ -24,29 +24,21 @@ export const routeId = ({ list, entry, occurrence = 0 }: UpstreamRoute) => creat
 
 export class UpstreamConfig {
   readonly doc: ReturnType<typeof parseDocument>
+  private readonly v8: boolean
 
   constructor(readonly text: string) {
     this.doc = parseDocument(text, { merge: true })
     if (this.doc.errors.length || !isMap(this.doc.contents)) throw new Error('The proxy returned invalid config.yaml')
-    const resolved = this.doc.toJS()
-    for (const list of UPSTREAM_LISTS) {
-      for (const path of [[list], ['api-keys', FAMILY[list]]]) {
-        const node = this.doc.getIn(path)
-        let aliased = false
-        if (isNode(node)) visit(node, (_, value) => {
-          if (isAlias(value) || (isMap(value) && value.items.some((pair) => isNode(pair.key) && String(json(pair.key)).includes('<<')))) aliased = true
-        })
-        if (aliased) {
-          const value = path.reduce((value, key) => value?.[key], resolved)
-          this.doc.setIn(path, this.doc.createNode(value))
-        }
-      }
-    }
-    if (this.doc.get('config-version') === 8 && isSeq(this.doc.get('api-keys'))) {
+    let aliased = false
+    visit(this.doc, (_, node) => { if (isAlias(node)) aliased = true })
+    if (aliased) this.doc.contents = this.doc.createNode(this.doc.toJS(), { aliasDuplicateObjects: false })
+    const roots = ['models', 'config-version', 'server', 'management', 'access', 'credentials', 'requests', 'oauth', 'upstream', 'multimedia', 'observability']
+    this.v8 = roots.some((root) => this.doc.has(root)) || isMap(this.doc.get('api-keys')) || ['retry', 'cooldown', 'force-model-prefix'].some((key) => this.doc.hasIn(['routing', key])) || this.doc.hasIn(['client', 'codex', 'optimize-multi-agent-v2'])
+    if (this.v8 && isSeq(this.doc.get('api-keys'))) {
       if (!this.doc.hasIn(['access', 'api-keys'])) this.doc.setIn(['access', 'api-keys'], this.doc.createNode(json(this.doc.get('api-keys'))))
       this.doc.delete('api-keys')
     }
-    if (isMap(this.doc.get('api-keys')) || this.doc.get('config-version') === 8) {
+    if (this.v8) {
       for (const list of UPSTREAM_LISTS) {
         if (!this.doc.has(list)) continue
         const path = ['api-keys', FAMILY[list]]
@@ -69,7 +61,7 @@ export class UpstreamConfig {
   }
 
   private grouped(list: UpstreamList) {
-    return this.doc.hasIn(['api-keys', FAMILY[list]]) || (!this.doc.has(list) && (isMap(this.doc.get('api-keys')) || (this.doc.get('config-version') === 8 && !isSeq(this.doc.get('api-keys')))))
+    return this.doc.hasIn(['api-keys', FAMILY[list]]) || (!this.doc.has(list) && this.v8)
   }
 
   routes(): UpstreamRoute[] {

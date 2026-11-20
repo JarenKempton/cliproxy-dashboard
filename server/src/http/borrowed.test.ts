@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { parse, stringify } from 'yaml'
 import { openDb } from '../db/client'
+import { BorrowedUpstreams } from '../borrowed-upstreams'
 import { SharingStore } from '../sharing'
 import { poolSettings } from './sharing'
 
@@ -217,4 +218,61 @@ test('join preserves legacy client-key arrays even with config-version 8', async
   await f.store.pauseLender(gateway, true)
   await f.restart().pauseLender(gateway, false)
   expect(f.config()['api-keys'].codex[0].keys[0]['excluded-models']).toBeUndefined()
+})
+
+test('v8 layout without version marker restores legacy routes after pause', async () => {
+  const gateway = lender()
+  const f = fixture({ server: { port: 8317 }, access: { 'api-keys': ['client'] }, 'codex-api-key': [{ 'api-key': 'same', 'base-url': `${gateway}/pool/v1` }] })
+  await f.store.pauseLender(gateway, true)
+  expect(f.config()['api-keys'].codex[0].keys[0]['excluded-models']).toEqual(['*'])
+  await f.restart().pauseLender(gateway, false)
+  expect(f.config()['api-keys'].codex[0].keys[0]['excluded-models']).toBeUndefined()
+})
+
+test('ancestor aliases, root merges and aliased client keys remain editable', async () => {
+  const gateway = lender()
+  for (const yaml of [
+    `providers: &providers\n  codex: [{base-url: ${gateway}/pool/v1, keys: [{api-key: same}]}]\napi-keys: *providers\n`,
+    `defaults: &defaults\n  codex-api-key: [{base-url: ${gateway}/pool/v1, api-key: same}]\n<<: *defaults\n`,
+  ]) {
+    const f = fixture(yaml)
+    expect(await f.store.pauseLender(gateway, true)).toBe(true)
+    expect(await f.restart().pauseLender(gateway, false)).toBe(true)
+  }
+  const f = fixture('config-version: 8\nclients: &clients [client]\napi-keys: *clients\n')
+  await f.store.join(`${gateway}/pool/invite/TEST-CODE`)
+  expect(f.config().access['api-keys']).toEqual(['client'])
+})
+
+test('rejoin token rotation preserves snapshots of unchanged duplicate routes', async () => {
+  const gateway = lender()
+  const base = { 'api-key': 'same', 'base-url': `${gateway}/pool/v1` }
+  const f = fixture({ 'codex-api-key': [base, { ...base, 'excluded-models': ['*'] }] })
+  await f.store.pauseLender(gateway, true)
+  await f.store.join(`${gateway}/pool/invite/TEST-CODE`)
+  await f.restart().pauseLender(gateway, false)
+  expect(f.config()['codex-api-key'][0]['excluded-models']).toBeUndefined()
+  expect(f.config()['codex-api-key'][1]['excluded-models']).toEqual(['*'])
+})
+
+
+test('thrown config write failures reconcile snapshots before a later manual disable', async () => {
+  const gateway = lender()
+  let text = stringify({ 'openai-compatibility': [compat(gateway)] })
+  let reject = true
+  const db = openDb(':memory:')
+  cleanups.push(() => db.$client.close())
+  const upstreams = new BorrowedUpstreams(db, async (_path, init) => {
+    if (init?.method === 'PUT') {
+      if (reject) throw new Error('disconnected before writing')
+      text = init.raw!
+    }
+    return new Response(text)
+  }, gateway)
+  await expect(upstreams.pause(gateway, true)).rejects.toThrow('disconnected')
+  text = stringify({ 'openai-compatibility': [compat(gateway, true)] })
+  reject = false
+  await upstreams.pause(gateway, true)
+  await upstreams.pause(gateway, false)
+  expect(parse(text)['openai-compatibility'][0].disabled).toBe(true)
 })

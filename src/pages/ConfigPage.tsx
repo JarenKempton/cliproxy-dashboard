@@ -113,6 +113,7 @@ function FieldControl({ field, value, onChange }: { field: Field; value: unknown
 
 export function ConfigPage() {
   const [original, setOriginal] = useState<string | null>(null)
+  const [revision, setRevision] = useState('')
   const [draft, setDraft] = useState('')
   const [view, setView] = useState<'form' | 'yaml'>('form')
   const [reviewing, setReviewing] = useState(false)
@@ -120,7 +121,8 @@ export function ConfigPage() {
 
   const load = useCallback(async () => {
     try {
-      const text = await getConfigYaml()
+      const { text, revision } = await getConfigYaml()
+      setRevision(revision)
       setOriginal(text)
       setDraft(text)
     } catch (err) {
@@ -151,9 +153,10 @@ export function ConfigPage() {
   }
 
   const save = async () => {
+    if (original === null) return
     setSaving(true)
     try {
-      await putConfigYaml(draft)
+      await putConfigYaml(draft, revision)
       setReviewing(false)
       toast('Saved — the proxy reloads its config automatically')
       await load()

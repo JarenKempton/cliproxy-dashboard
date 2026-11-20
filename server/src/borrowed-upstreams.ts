@@ -39,13 +39,15 @@ export class BorrowedUpstreams {
     saveBackup(config.text)
     const previous = this.state(gateway)
     this.save(gateway, next)
-    const response = await this.management('/config.yaml', { method: 'PUT', raw: config.toString() })
-    if (!response.ok) {
+    try {
+      const response = await this.management('/config.yaml', { method: 'PUT', raw: config.toString() })
+      if (!response.ok) throw new Error(`The proxy refused the config.yaml update (HTTP ${response.status})`)
+    } catch (error) {
       try {
         const actual = await this.management('/config.yaml')
         if (actual.ok && await actual.text() === config.text) this.save(gateway, previous)
       } catch {}
-      throw new Error(`The proxy refused the config.yaml update (HTTP ${response.status})`)
+      throw error
     }
   }
 
@@ -83,6 +85,7 @@ export class BorrowedUpstreams {
       const routes = config.routes().filter((r) => gatewayOf(r.entry) === gateway)
       const paused = routes.length > 0 && routes.every(isPaused)
       const next = state ?? { originals: {} }
+      const originals = paused ? routes.map((route) => ({ node: config.doc.getIn(route.path), original: next.originals[routeId(route)] ?? config.snapshot(route) })) : []
       const fallback = { priority: -1, 'disable-cooling': true }
       const additions: (UpstreamKey | null)[] = [
         { 'api-key': token, 'base-url': `${gateway}/pool`, ...fallback },
@@ -101,6 +104,12 @@ export class BorrowedUpstreams {
         if (paused) {
           next.originals[routeId(route)] = original ?? config.snapshot(route)
           config.pause(route)
+        }
+      }
+      if (paused) {
+        for (const route of config.routes()) {
+          const saved = originals.find(({ node }) => node === config.doc.getIn(route.path))
+          if (saved) next.originals[routeId(route)] = saved.original
         }
       }
       await this.write(config, gateway, paused ? next : state)
