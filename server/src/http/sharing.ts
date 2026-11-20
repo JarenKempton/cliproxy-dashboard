@@ -17,6 +17,7 @@
 //   PUT    /api/pool/owner            { owner }: the name peers see
 //   PUT    /api/pool/floor            { pool, window, percent }: share of a quota window kept for yourself (0 clears)
 //   GET    /api/pool/borrowed         peers this proxy borrows from, and what they share
+//   PUT    /api/pool/borrowed         { gateway, paused }: stop or resume using a lender, keeping its token
 //   PUT    /api/pool/sharing          { pool, until }: a time, null (until turned off) or false (stop)
 //   POST   /api/pool/peers            { name } -> { token, code, expires }: token and invite code, shown once
 //   DELETE /api/pool/peers/:id
@@ -148,6 +149,16 @@ export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {
   })
 
   app.get('/borrowed', async (c) => c.json(await pool.lenders()))
+
+  app.put('/borrowed', async (c) => {
+    const { gateway, paused } = await c.req.json<{ gateway?: string; paused?: boolean }>()
+    if (!gateway?.trim() || typeof paused !== 'boolean') return c.json({ error: 'gateway and paused are required' }, 400)
+    try {
+      return (await pool.pauseLender(gateway, paused)) ? c.json({ ok: true }) : c.json({ error: `not borrowing from ${gateway}` }, 404)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502)
+    }
+  })
 
   app.put('/owner', async (c) => {
     const { owner } = await c.req.json<{ owner?: string }>()

@@ -10,6 +10,7 @@ import {
   getLenders,
   getSharing,
   joinPeer,
+  pauseLender,
   describeFloors,
   peerConfig,
   POOLS,
@@ -42,6 +43,8 @@ export function SharingPage() {
   const [byHand, setByHand] = useState(false)
   const [link, setLink] = useState('')
   const [lenders, setLenders] = useState<Lender[] | null>(null)
+  const [pausing, setPausing] = useState<string | null>(null)
+  const lenderLoad = useRef(0)
   const [removing, setRemoving] = useState<Peer | null>(null)
   const [owner, setOwnerName] = useState('')
   const [drafts, setDrafts] = useState<Partial<Record<Pool, Draft>>>({})
@@ -81,13 +84,12 @@ export function SharingPage() {
         .catch((err) => toast(`Couldn’t save name: ${err.message}`))
   }
 
-  const loadLenders = useCallback(
-    () =>
-      getLenders()
-        .then(setLenders)
-        .catch(() => setLenders([])),
-    [],
-  )
+  const loadLenders = useCallback(() => {
+    const request = ++lenderLoad.current
+    return getLenders()
+      .then((result) => { if (request === lenderLoad.current) setLenders(result) })
+      .catch(() => { if (request === lenderLoad.current) setLenders([]) })
+  }, [])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -147,6 +149,19 @@ export function SharingPage() {
       await loadLenders()
     } catch (err) {
       toast(`Couldn’t join: ${(err as Error).message}`)
+    }
+  }
+
+  const pause = async (lender: Lender) => {
+    lenderLoad.current++
+    setPausing(lender.gateway)
+    try {
+      await pauseLender(lender.gateway, !lender.paused)
+      await loadLenders()
+    } catch (err) {
+      toast(`Couldn’t ${lender.paused ? 'resume' : 'pause'} borrowing: ${(err as Error).message}`)
+    } finally {
+      setPausing(null)
     }
   }
 
@@ -319,7 +334,10 @@ export function SharingPage() {
             <div className="panel klist">
               {lenders.map((l) => (
                 <div key={l.gateway} className="krow">
-                  <span>{lenderName(l)}</span>
+                  <span>
+                    {lenderName(l)}
+                    {l.paused && <span className="faint"> · paused</span>}
+                  </span>
                   <span className="mono faint">
                     {l.error
                       ? `can’t reach them (${l.error})`
@@ -332,7 +350,12 @@ export function SharingPage() {
                             .join(' · ')
                         : 'not sharing anything right now'}
                   </span>
-                  <span />
+                  <Switch
+                    on={!l.paused}
+                    label={`${l.paused ? 'Resume' : 'Pause'} borrowing from ${lenderName(l)}`}
+                    disabled={pausing !== null}
+                    onChange={() => pause(l)}
+                  />
                 </div>
               ))}
             </div>
