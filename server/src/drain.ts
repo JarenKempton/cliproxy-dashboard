@@ -16,8 +16,8 @@ const DAY = 86400e3
 type ReadWindows = (f: AuthFile) => Promise<QuotaWindow[]>
 
 // When the account's soonest weekly-or-longer window resets; Infinity if unknown.
-export const weeklyReset = (windows: QuotaWindow[]) =>
-  Math.min(...windows.filter((w) => w.periodMs >= 7 * DAY && w.resetAtMs !== null && w.resetAtMs > Date.now()).map((w) => w.resetAtMs!))
+export const weeklyReset = (windows: QuotaWindow[], now = Date.now()) =>
+  Math.min(...windows.filter((w) => w.periodMs >= 7 * DAY && w.resetAtMs !== null && w.resetAtMs > now).map((w) => w.resetAtMs!))
 
 // Priority by account name: 1 for the latest reset up to the most for the
 // soonest, equal resets sharing one; 0 when the reset is unknown.
@@ -27,9 +27,7 @@ export function rank(resets: Map<string, number>) {
 }
 
 export class Drain {
-  // The last weekly reset read per account, so a rate-limited read doesn't
-  // drop an account to the bottom.
-  private resets = new Map<string, number>()
+  private windows = new Map<string, QuotaWindow[]>()
   private pending = Promise.resolve()
 
   constructor(
@@ -79,15 +77,10 @@ export class Drain {
     const files = (await listAuthFiles()).filter((f) => !f.disabled)
     for (const f of files) {
       const windows = await this.readWindows(f).catch(() => null)
-      const previous = this.resets.get(f.name) ?? Infinity
-      const reset = windows === null ? previous : weeklyReset(windows)
-      this.resets.set(f.name, reset > Date.now() ? reset : Infinity)
+      if (windows !== null) this.windows.set(f.name, windows)
     }
     const now = Date.now()
-    const resets = new Map(files.map((f) => {
-      const reset = this.resets.get(f.name) ?? Infinity
-      return [f.name, reset > now ? reset : Infinity] as const
-    }))
+    const resets = new Map(files.map((f) => [f.name, weeklyReset(this.windows.get(f.name) ?? [], now)]))
     await this.write(files, rank(resets), save)
   }
 

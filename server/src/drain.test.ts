@@ -170,3 +170,20 @@ test('a rejected settings save restores all changed priorities and keeps the swi
     expect(files.map((file) => file.priority)).toEqual([7, 8])
   } finally { db.$client.exec('DROP TRIGGER refuse_drain') }
 })
+
+test('a later valid weekly window survives an earlier reset expiring during refresh', async () => {
+  files = files.slice(0, 2)
+  const started = Date.now()
+  let clock = started
+  const time = spyOn(Date, 'now').mockImplementation(() => clock)
+  const window = (seconds: number): QuotaWindow => ({ id: `weekly-${seconds}`, label: 'Weekly', periodMs: 168 * HOUR, resetAtMs: started + seconds * 1000, usedPercent: 50 })
+  const multiple = new Drain(db, proxy.url.origin, 'management', async (file) => {
+    if (file.name === 'curt-1') return [window(1), window(60)]
+    clock = started + 10000
+    return [window(120)]
+  })
+  try {
+    await multiple.set(true)
+    expect(files.map((file) => file.priority ?? 0)).toEqual([2, 1])
+  } finally { time.mockRestore() }
+})
