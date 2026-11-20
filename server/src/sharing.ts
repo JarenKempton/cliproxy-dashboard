@@ -64,6 +64,13 @@ export class SharingStore {
   private lastWindows = new Map<string, { at: number; windows: QuotaWindow[] }>()
   readonly invites = new Invites()
   private status = new Map<number, { at: number; body: LenderStatus }>()
+  private upstreamChanges = Promise.resolve()
+
+  private updateUpstreams<T>(operation: () => Promise<T>) {
+    const result = this.upstreamChanges.then(operation)
+    this.upstreamChanges = result.then(() => {}, () => {})
+    return result
+  }
 
   constructor(
     private db: Db,
@@ -160,7 +167,7 @@ export class SharingStore {
 
   // Adds a lender from its invite link to this proxy's config.
   join(link: string) {
-    return joinPeer(link, (path, init) => this.management(path, init), () => this.backupConfig())
+    return this.updateUpstreams(() => joinPeer(link, (path, init) => this.management(path, init), () => this.backupConfig()))
   }
 
   peerFor(token: string) {
@@ -329,7 +336,11 @@ export class SharingStore {
   // Stops or resumes this proxy's use of a lender, keeping its token: every
   // upstream entry pointing at the lender's gateway excludes all models, or
   // is disabled where the proxy supports that. False when none points there.
-  async pauseLender(gateway: string, paused: boolean) {
+  pauseLender(gateway: string, paused: boolean) {
+    return this.updateUpstreams(() => this.writeLenderPause(gateway, paused))
+  }
+
+  private async writeLenderPause(gateway: string, paused: boolean) {
     const lists = new Map<UpstreamList, UpstreamKey[]>()
     for (const list of UPSTREAM_LISTS) {
       const res = await this.management(`/${list}`)

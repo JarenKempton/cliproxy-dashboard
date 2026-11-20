@@ -43,6 +43,7 @@ const upstream = Bun.serve({
     const list = url.pathname.match(/^\/v0\/management\/(claude-api-key|codex-api-key|openai-compatibility)$/)?.[1]
     if (list && req.method === 'PUT') {
       proxy.lists[list] = (await req.json()) as unknown[]
+      if (list === 'claude-api-key') proxy.upstreamKeys = proxy.lists[list] as typeof proxy.upstreamKeys
       return Response.json({ status: 'ok' })
     }
     if (list && proxy.listsDown) return new Response('down', { status: 500 })
@@ -276,6 +277,22 @@ test('pausing a lender stops every upstream entry pointing at it, keeps its toke
   expect(proxy.lists['claude-api-key']).toEqual(claude)
   expect(proxy.lists['openai-compatibility']).toEqual(grok)
   expect(await store.pauseLender('https://nobody.example', true)).toBe(false)
+})
+
+test('concurrent pauses preserve both lenders’ changes', async () => {
+  proxy.upstreamKeys = [
+    { 'api-key': 'pool-first', 'base-url': 'https://first.example/pool' },
+    { 'api-key': 'pool-second', 'base-url': 'https://second.example/pool' },
+  ]
+  proxy.lists = { 'codex-api-key': [], 'openai-compatibility': [] }
+  expect(await Promise.all([
+    store.pauseLender('https://first.example', true),
+    store.pauseLender('https://second.example', true),
+  ])).toEqual([true, true])
+  expect(proxy.lists['claude-api-key']).toEqual([
+    { 'api-key': 'pool-first', 'base-url': 'https://first.example/pool', 'excluded-models': ['*'] },
+    { 'api-key': 'pool-second', 'base-url': 'https://second.example/pool', 'excluded-models': ['*'] },
+  ])
 })
 
 test('refuses once a window is down to the share its owner keeps, and ignores windows the pool lacks', async () => {
