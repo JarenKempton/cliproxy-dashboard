@@ -8,6 +8,7 @@
 // - After a single 401 the bridge stops forwarding until the server is
 //   restarted: CLIProxyAPI bans an IP for ~30 min after 5 failed key attempts.
 
+import { withConfigWrite } from '../config-write'
 import { Hono } from 'hono'
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { META_MINT_URL, metaQuota } from './meta-quota'
@@ -162,6 +163,12 @@ export function managementApp(target: string, managementKey: string, allowWrites
     return res
   }
   const app = new Hono()
+
+  app.use('*', (c, next) => {
+    const pathname = new URL(c.req.url).pathname.slice(MANAGEMENT_PREFIX.length)
+    const writesConfig = c.req.method !== 'GET' && (allowWrites || WRITE_RULES.some((rule) => rule.touchesConfig && rule.methods.includes(c.req.method) && rule.path.test(pathname)))
+    return writesConfig ? withConfigWrite(target, next) : next()
+  })
 
   app.all('*', async (c) => {
     const url = new URL(c.req.url)

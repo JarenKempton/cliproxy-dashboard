@@ -14,6 +14,7 @@ import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
 import { accountHours } from './usage/summary'
 import { Invites, joinPeer } from './pool-invites'
+import { withConfigWrite } from './config-write'
 import { BorrowedUpstreams } from './borrowed-upstreams'
 import { gatewayOf, isPaused } from './upstream-config'
 
@@ -47,7 +48,7 @@ export class SharingStore {
     private proxyUrl: string,
     private managementKey: string,
   ) {
-    this.upstreams = new BorrowedUpstreams(db, (path, init) => this.management(path, init))
+    this.upstreams = new BorrowedUpstreams(db, (path, init) => this.management(path, init), proxyUrl)
   }
 
   private management(path: string, init?: { method: string; body?: unknown; raw?: string }) {
@@ -96,30 +97,34 @@ export class SharingStore {
 
   // The peer row comes first and is undone if the proxy refuses the key, so a
   // key in the proxy always has a row to revoke it from.
-  async addPeer(name: string): Promise<string> {
-    const token = `pool-${randomBytes(24).toString('base64url')}`
-    const proxyKey = `sk-pool-${randomBytes(24).toString('base64url')}`
-    const res = await this.management('/api-keys')
-    if (!res.ok) throw new Error(`the proxy refused to list keys (HTTP ${res.status})`)
-    const { 'api-keys': existing = [] } = (await res.json()) as { 'api-keys'?: string[] }
-    await this.backupConfig()
-    const { id } = this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).returning({ id: poolPeers.id }).get()
-    const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] }).catch((e: Error) => e)
-    if (put instanceof Error || !put.ok) {
-      this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
-      throw new Error(put instanceof Error ? `couldn’t reach the proxy: ${put.message}` : `the proxy refused the new key (HTTP ${put.status})`)
-    }
-    setKeyLabel(this.db, hashKey(proxyKey), `${PEER_LABEL}${name}`)
-    return token
+  addPeer(name: string): Promise<string> {
+    return withConfigWrite(this.proxyUrl, async () => {
+      const token = `pool-${randomBytes(24).toString('base64url')}`
+      const proxyKey = `sk-pool-${randomBytes(24).toString('base64url')}`
+      const res = await this.management('/api-keys')
+      if (!res.ok) throw new Error(`the proxy refused to list keys (HTTP ${res.status})`)
+      const { 'api-keys': existing = [] } = (await res.json()) as { 'api-keys'?: string[] }
+      await this.backupConfig()
+      const { id } = this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).returning({ id: poolPeers.id }).get()
+      const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] }).catch((e: Error) => e)
+      if (put instanceof Error || !put.ok) {
+        this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+        throw new Error(put instanceof Error ? `couldn’t reach the proxy: ${put.message}` : `the proxy refused the new key (HTTP ${put.status})`)
+      }
+      setKeyLabel(this.db, hashKey(proxyKey), `${PEER_LABEL}${name}`)
+      return token
+    })
   }
 
   // The key's label stays, so past usage is still attributed to the peer.
-  async removePeer(id: number) {
-    const peer = this.db.select().from(poolPeers).where(eq(poolPeers.id, id)).get()
-    if (!peer) return
-    const res = await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
-    if (!res.ok && res.status !== 404) throw new Error(`the proxy refused to remove the key (HTTP ${res.status})`)
-    this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+  removePeer(id: number) {
+    return withConfigWrite(this.proxyUrl, async () => {
+      const peer = this.db.select().from(poolPeers).where(eq(poolPeers.id, id)).get()
+      if (!peer) return
+      const res = await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
+      if (!res.ok && res.status !== 404) throw new Error(`the proxy refused to remove the key (HTTP ${res.status})`)
+      this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+    })
   }
 
   // Model ids of this proxy's Grok and Muse accounts, which a borrower's proxy

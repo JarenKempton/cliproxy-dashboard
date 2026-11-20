@@ -1,3 +1,4 @@
+import { withConfigWrite } from './config-write'
 import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { Db } from './db/client'
@@ -10,15 +11,7 @@ export type Management = (path: string, init?: { method: string; body?: unknown;
 type PauseState = { originals: Record<string, PauseSnapshot> }
 
 export class BorrowedUpstreams {
-  private pending = Promise.resolve()
-
-  constructor(private db: Db, private management: Management) {}
-
-  private enqueue<T>(operation: () => Promise<T>) {
-    const result = this.pending.then(operation)
-    this.pending = result.then(() => {}, () => {})
-    return result
-  }
+  constructor(private db: Db, private management: Management, private target: string) {}
 
   private key(gateway: string) {
     return `borrowed-pause:${createHash('sha256').update(gateway).digest('hex')}`
@@ -44,15 +37,20 @@ export class BorrowedUpstreams {
 
   private async write(config: UpstreamConfig, gateway: string, next?: PauseState) {
     saveBackup(config.text)
+    const previous = this.state(gateway)
     this.save(gateway, next)
     const response = await this.management('/config.yaml', { method: 'PUT', raw: config.toString() })
     if (!response.ok) {
+      try {
+        const actual = await this.management('/config.yaml')
+        if (actual.ok && await actual.text() === config.text) this.save(gateway, previous)
+      } catch {}
       throw new Error(`The proxy refused the config.yaml update (HTTP ${response.status})`)
     }
   }
 
   pause(gateway: string, paused: boolean) {
-    return this.enqueue(async () => {
+    return withConfigWrite(this.target, async () => {
       const config = await this.read()
       const routes = config.routes().filter((route) => gatewayOf(route.entry) === gateway)
       if (!routes.length) return false
@@ -75,7 +73,7 @@ export class BorrowedUpstreams {
   }
 
   join(gateway: string, claim: () => Promise<InviteClaim>) {
-    return this.enqueue(async () => {
+    return withConfigWrite(this.target, async () => {
       const before = await this.read()
       before.routes()
       saveBackup(before.text)
