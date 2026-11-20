@@ -44,6 +44,7 @@ export function SharingPage() {
   const [link, setLink] = useState('')
   const [lenders, setLenders] = useState<Lender[] | null>(null)
   const [pausing, setPausing] = useState<string | null>(null)
+  const lenderLoad = useRef(0)
   const [removing, setRemoving] = useState<Peer | null>(null)
   const [owner, setOwnerName] = useState('')
   const [drafts, setDrafts] = useState<Partial<Record<Pool, Draft>>>({})
@@ -83,13 +84,12 @@ export function SharingPage() {
         .catch((err) => toast(`Couldn’t save name: ${err.message}`))
   }
 
-  const loadLenders = useCallback(
-    () =>
-      getLenders()
-        .then(setLenders)
-        .catch(() => setLenders([])),
-    [],
-  )
+  const loadLenders = useCallback(() => {
+    const request = ++lenderLoad.current
+    return getLenders()
+      .then((result) => { if (request === lenderLoad.current) setLenders(result) })
+      .catch(() => { if (request === lenderLoad.current) setLenders([]) })
+  }, [])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -153,6 +153,7 @@ export function SharingPage() {
   }
 
   const pause = async (lender: Lender) => {
+    lenderLoad.current++
     setPausing(lender.gateway)
     try {
       await pauseLender(lender.gateway, !lender.paused)
@@ -352,7 +353,7 @@ export function SharingPage() {
                   <Switch
                     on={!l.paused}
                     label={`${l.paused ? 'Resume' : 'Pause'} borrowing from ${lenderName(l)}`}
-                    disabled={pausing === l.gateway}
+                    disabled={pausing !== null}
                     onChange={() => pause(l)}
                   />
                 </div>

@@ -2,11 +2,13 @@ import { afterAll, beforeEach, expect, setSystemTime, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parse, stringify } from 'yaml'
 import { sendManagementVia } from '../../../src/lib/api'
 import { openDb } from '../db/client'
 import { requests } from '../db/schema'
 import { hashKey } from '../usage/cliproxy-record'
 import { SharingStore } from '../sharing'
+import type { UpstreamKey } from '../upstream-config'
 import { poolGateway, poolSettings } from './sharing'
 
 type Account = { name: string; auth_index: string; email: string; provider: string; unavailable?: boolean; models: string[] }
@@ -18,7 +20,9 @@ const proxy = {
   accountsDown: false,
   unreadable: [] as string[],
   listsDown: false,
-  upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
+  refuseConfig: false,
+  configWrites: 0,
+  upstreamKeys: [] as UpstreamKey[],
   lists: {} as Record<string, unknown[]>,
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
@@ -48,7 +52,18 @@ const upstream = Bun.serve({
     }
     if (list && proxy.listsDown) return new Response('down', { status: 500 })
     if (list) return Response.json({ [list]: proxy.lists[list] ?? [] })
-    if (url.pathname === '/v0/management/config.yaml') return new Response('api-keys: []\n')
+    if (url.pathname === '/v0/management/config.yaml') {
+      if (proxy.listsDown) return new Response('unavailable', { status: 503 })
+      if (req.method === 'PUT') {
+        proxy.configWrites++
+        if (proxy.refuseConfig) return new Response('unavailable', { status: 503 })
+        const config = parse(await req.text())
+        proxy.lists = Object.fromEntries(['claude-api-key', 'codex-api-key', 'openai-compatibility'].map((list) => [list, config[list] ?? []]))
+        proxy.upstreamKeys = proxy.lists['claude-api-key'] as typeof proxy.upstreamKeys
+        return Response.json({ status: 'ok' })
+      }
+      return new Response(stringify({ ...proxy.lists, 'claude-api-key': proxy.upstreamKeys }))
+    }
     if (url.pathname === '/v0/management/api-call') {
       const call = (await req.json()) as { url: string; authIndex: string }
       if (call.url.endsWith('/usage')) proxy.quotaReads++
@@ -73,6 +88,7 @@ const gateway = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: poolGateway(u
 const token = await store.addPeer('Curt')
 
 afterAll(() => {
+  sendManagementVia((path, init) => fetch(path, init))
   gateway.stop(true)
   upstream.stop(true)
 })
@@ -88,6 +104,8 @@ beforeEach(() => {
   ]
   proxy.forwarded = []
   store.forgetStatus()
+  proxy.refuseConfig = false
+  proxy.configWrites = 0
 })
 
 const borrow = (model: string, headers: Record<string, string> = { 'x-api-key': token }) =>
@@ -270,7 +288,6 @@ test('pausing a lender stops every upstream entry pointing at it, keeps its toke
   expect(proxy.lists['openai-compatibility']).toEqual([{ ...grok[0], disabled: true }])
   expect(proxy.lists['codex-api-key']).toEqual([])
 
-  proxy.upstreamKeys = proxy.lists['claude-api-key'] as typeof claude
   expect((await store.lenders()).map((l) => l.paused)).toEqual([true])
 
   await store.pauseLender(gateway.url.origin, false)
@@ -374,7 +391,8 @@ test('an invite expires after 15 minutes', () => {
 })
 
 test('joining again after a re-invite swaps in the new token instead of keeping the dead one', async () => {
-  proxy.lists = { 'claude-api-key': [{ 'api-key': 'pool-revoked', 'base-url': `${gateway.url.origin}/pool`, priority: -1 }] }
+  proxy.upstreamKeys = [{ 'api-key': 'pool-revoked', 'base-url': `${gateway.url.origin}/pool`, priority: -1 }] as typeof proxy.upstreamKeys
+  proxy.lists = {}
   const { code } = store.invites.mint(token)
   await store.join(`${gateway.url.origin}/pool/invite/${code}`)
   expect(proxy.lists['claude-api-key']).toEqual([{ 'api-key': token, 'base-url': `${gateway.url.origin}/pool`, priority: -1, 'disable-cooling': true }])
@@ -384,7 +402,7 @@ test('an invite isn’t spent when this proxy’s config can’t be read', async
   const { code } = store.invites.mint(token)
   const link = `${gateway.url.origin}/pool/invite/${code}`
   proxy.listsDown = true
-  await expect(store.join(link)).rejects.toThrow('refused to list')
+  await expect(store.join(link)).rejects.toThrow('refused to read')
   proxy.listsDown = false
   expect(await store.join(link)).toMatchObject({ gateway: gateway.url.origin })
 })

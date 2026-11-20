@@ -14,6 +14,8 @@ import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
 import { accountHours } from './usage/summary'
 import { Invites, joinPeer } from './pool-invites'
+import { BorrowedUpstreams } from './borrowed-upstreams'
+import { gatewayOf, isPaused } from './upstream-config'
 
 export const POOLS = { claude: 'claude', codex: 'codex', grok: 'xai', muse: 'meta' } as const
 export type Pool = keyof typeof POOLS
@@ -34,55 +36,25 @@ export function peerKeyHashes(db: Db) {
 const STATUS_TTL_MS = 60e3
 const LAST_READING_MS = 15 * 60e3
 const COST_HISTORY_MS = 14 * 86400e3
-const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
-
-type UpstreamKey = Record<string, unknown> & {
-  'api-key'?: string
-  'base-url'?: string
-  'api-key-entries'?: { 'api-key'?: string }[]
-  'excluded-models'?: string[]
-  disabled?: boolean
-}
-const UPSTREAM_LISTS = ['claude-api-key', 'codex-api-key', 'openai-compatibility'] as const
-type UpstreamList = (typeof UPSTREAM_LISTS)[number]
-
-const gatewayOf = (e: UpstreamKey) => e['base-url']?.match(GATEWAY)?.[1]
-const isPaused = (list: UpstreamList, e: UpstreamKey) =>
-  list === 'openai-compatibility' ? e.disabled === true : (e['excluded-models'] ?? []).includes('*')
-
-const upstreamEntries = async (res: Response, list: UpstreamList) =>
-  (((await res.json()) as Record<string, UpstreamKey[] | null>)[list] ?? []) as UpstreamKey[]
-
-function withPause(list: UpstreamList, e: UpstreamKey, paused: boolean): UpstreamKey {
-  if (list === 'openai-compatibility') return { ...e, disabled: paused || undefined }
-  const kept = (e['excluded-models'] ?? []).filter((m) => m !== '*')
-  const excluded = paused ? [...kept, '*'] : kept
-  return { ...e, 'excluded-models': excluded.length ? excluded : undefined }
-}
-
 export class SharingStore {
   private lastWindows = new Map<string, { at: number; windows: QuotaWindow[] }>()
   readonly invites = new Invites()
   private status = new Map<number, { at: number; body: LenderStatus }>()
-  private upstreamChanges = Promise.resolve()
-
-  private updateUpstreams<T>(operation: () => Promise<T>) {
-    const result = this.upstreamChanges.then(operation)
-    this.upstreamChanges = result.then(() => {}, () => {})
-    return result
-  }
+  private upstreams: BorrowedUpstreams
 
   constructor(
     private db: Db,
     private proxyUrl: string,
     private managementKey: string,
-  ) {}
+  ) {
+    this.upstreams = new BorrowedUpstreams(db, (path, init) => this.management(path, init))
+  }
 
-  private management(path: string, init?: { method: string; body?: unknown }) {
+  private management(path: string, init?: { method: string; body?: unknown; raw?: string }) {
     return fetch(`${this.proxyUrl}/v0/management${path}`, {
       method: init?.method ?? 'GET',
       headers: { Authorization: `Bearer ${this.managementKey}`, 'Content-Type': 'application/json' },
-      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+      body: init?.raw ?? (init?.body === undefined ? undefined : JSON.stringify(init.body)),
     })
   }
 
@@ -167,7 +139,7 @@ export class SharingStore {
 
   // Adds a lender from its invite link to this proxy's config.
   join(link: string) {
-    return this.updateUpstreams(() => joinPeer(link, (path, init) => this.management(path, init), () => this.backupConfig()))
+    return joinPeer(link, this.upstreams)
   }
 
   peerFor(token: string) {
@@ -303,58 +275,33 @@ export class SharingStore {
     })
   }
 
-  // Peers this proxy borrows from, found in its own config as upstreams whose
-  // base-url is a peer's /pool gateway, with what each shares right now.
   async lenders(): Promise<Lender[]> {
-    const found = new Map<string, { gateway: string; token: string; paused: boolean }>()
-    for (const list of UPSTREAM_LISTS) {
-      const res = await this.management(`/${list}`)
-      if (!res.ok) continue
-      for (const e of await upstreamEntries(res, list)) {
-        const gateway = gatewayOf(e)
-        const tokens = [e['api-key'], ...(e['api-key-entries'] ?? []).map((k) => k['api-key'])].filter((t): t is string => !!t)
-        for (const token of gateway ? tokens : []) {
-          const key = `${gateway}|${token}`
-          found.set(key, { gateway: gateway!, token, paused: (found.get(key)?.paused ?? true) && isPaused(list, e) })
-        }
+    const found = new Map<string, { tokens: Set<string>; paused: boolean }>()
+    for (const route of (await this.upstreams.read()).routes()) {
+      const gateway = gatewayOf(route.entry)
+      if (!gateway) continue
+      const lender = found.get(gateway) ?? { tokens: new Set<string>(), paused: true }
+      lender.paused &&= isPaused(route)
+      for (const token of [route.entry['api-key'], ...(route.entry['api-key-entries'] ?? []).map((key) => key['api-key'])]) {
+        if (token) lender.tokens.add(token)
       }
+      found.set(gateway, lender)
     }
-    return Promise.all(
-      [...found.values()].map(async ({ gateway, token, paused }): Promise<Lender> => {
+    return Promise.all([...found].map(async ([gateway, { tokens, paused }]): Promise<Lender> => {
+      let error = 'No pool token configured'
+      for (const token of tokens) {
         try {
-          const res = await fetch(`${gateway}/pool/status`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15e3) })
-          if (!res.ok) return { gateway, paused, pools: [], error: `HTTP ${res.status}` }
-          const status = (await res.json()) as LenderStatus
+          const response = await fetch(`${gateway}/pool/status`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15e3) })
+          if (!response.ok) { error = `HTTP ${response.status}`; continue }
+          const status = await response.json() as LenderStatus
           return { gateway, paused, owner: status.owner || undefined, pools: status.pools }
-        } catch (e) {
-          return { gateway, paused, pools: [], error: (e as Error).message }
-        }
-      }),
-    )
+        } catch (e) { error = (e as Error).message }
+      }
+      return { gateway, paused, pools: [], error }
+    }))
   }
 
-  // Stops or resumes this proxy's use of a lender, keeping its token: every
-  // upstream entry pointing at the lender's gateway excludes all models, or
-  // is disabled where the proxy supports that. False when none points there.
   pauseLender(gateway: string, paused: boolean) {
-    return this.updateUpstreams(() => this.writeLenderPause(gateway, paused))
-  }
-
-  private async writeLenderPause(gateway: string, paused: boolean) {
-    const lists = new Map<UpstreamList, UpstreamKey[]>()
-    for (const list of UPSTREAM_LISTS) {
-      const res = await this.management(`/${list}`)
-      if (!res.ok) throw new Error(`the proxy refused to list ${list} (HTTP ${res.status})`)
-      lists.set(list, await upstreamEntries(res, list))
-    }
-    const touched = [...lists].filter(([, entries]) => entries.some((e) => gatewayOf(e) === gateway))
-    if (!touched.length) return false
-    await this.backupConfig()
-    for (const [list, entries] of touched) {
-      const next = entries.map((e) => (gatewayOf(e) === gateway ? withPause(list, e, paused) : e))
-      const put = await this.management(`/${list}`, { method: 'PUT', body: next })
-      if (!put.ok) throw new Error(`the proxy refused the ${list} change (HTTP ${put.status})`)
-    }
-    return true
+    return this.upstreams.pause(gateway, paused)
   }
 }
