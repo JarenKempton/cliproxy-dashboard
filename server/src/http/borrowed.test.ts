@@ -286,15 +286,15 @@ test('historical providers Codex layout signal normalizes before snapshots', asy
   expect(f.config()['api-keys'].codex[0].keys[0]['excluded-models']).toBeUndefined()
 })
 
-test('alias expansion preserves client credential scalar spelling and comments', async () => {
+test.each(['0xdeadbeef', '0xDEADBEEF', '00123', '1E+03'])('alias expansion preserves client credential spelling %s and comments', async (literal) => {
   const gateway = lender()
   const { UpstreamConfig } = await import('../upstream-config')
-  const source = `# client access\napi-keys: [0xdeadbeef] # keep credential spelling\nrequest-retry: &retry 0\nmax-retry-interval: *retry\ncodex-api-key:\n  - api-key: local-proof\n    base-url: ${gateway}/pool/v1\n`
+  const source = `# client access\napi-keys: [${literal}] # keep credential spelling\nrequest-retry: &retry 0\nmax-retry-interval: *retry\ncodex-api-key:\n  - api-key: local-proof\n    base-url: ${gateway}/pool/v1\n`
   const config = new UpstreamConfig(source)
   const route = config.routes()[0]
   config.pause(route)
   const paused = config.toString()
-  expect(paused).toContain('0xdeadbeef')
+  expect(paused).toContain(literal)
   expect(paused).toContain('# client access')
   expect(paused).toContain('# keep credential spelling')
   expect(new UpstreamConfig(paused).routes()[0].entry['excluded-models']).toEqual(['*'])

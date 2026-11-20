@@ -29,7 +29,20 @@ export class UpstreamConfig {
   private readonly v8: boolean
 
   constructor(readonly text: string) {
-    this.doc = parseDocument(text, { merge: true })
+    this.doc = parseDocument(text, {
+      merge: true,
+      customTags: (tags) => tags.map((tag) => {
+        if (typeof tag === 'string' || tag.collection || !tag.stringify || !tag.test || !['tag:yaml.org,2002:int', 'tag:yaml.org,2002:float'].includes(tag.tag)) return tag
+        const stringify = tag.stringify
+        return { ...tag, stringify: (node, context, ...args) => {
+          if (node.type === 'PLAIN' && node.source !== undefined && tag.test!.test(node.source)) {
+            const original = tag.resolve(node.source, () => {}, context.doc.options)
+            if (Object.is(original, node.value)) return node.source
+          }
+          return stringify(node, context, ...args)
+        } }
+      }),
+    })
     if (this.doc.errors.length || !isMap(this.doc.contents)) throw new Error('The proxy returned invalid config.yaml')
     let aliased = false
     visit(this.doc, (_, node) => { if (isAlias(node)) aliased = true })
