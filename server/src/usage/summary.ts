@@ -8,6 +8,7 @@
 //   A session using two providers appears in both rows, but once in the total.
 // - Days are the viewer's local days; "7d" means today and the 6 days before;
 //   "all" starts on the day of the earliest stored request.
+// - 24h and 7d are bucketed by hour, longer ranges by day.
 
 import { and, eq, gte, inArray, isNotNull, min, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
@@ -71,17 +72,18 @@ type Window = {
   keyOf: (ms: number) => number | string
 }
 
-function windowFor(range: Range, timeZone: string, now: number, earliestMs: number | null): Window {
-  if (range === '24h') {
-    const currentHour = Math.floor(now / HOUR) * HOUR
-    const startMs = currentHour - 23 * HOUR
-    return {
-      startMs,
-      bucket: 'hour',
-      keys: Array.from({ length: 24 }, (_, i) => startMs + i * HOUR),
-      keyOf: (ms) => Math.floor(ms / HOUR) * HOUR,
-    }
+function hourWindow(startMs: number, now: number): Window {
+  const hours = Math.floor(now / HOUR) - startMs / HOUR + 1
+  return {
+    startMs,
+    bucket: 'hour',
+    keys: Array.from({ length: hours }, (_, i) => startMs + i * HOUR),
+    keyOf: (ms) => Math.floor(ms / HOUR) * HOUR,
   }
+}
+
+function windowFor(range: Range, timeZone: string, now: number, earliestMs: number | null): Window {
+  if (range === '24h') return hourWindow(Math.floor(now / HOUR) * HOUR - 23 * HOUR, now)
 
   const dayOf = dayKeyFormatter(timeZone)
   const keys = [dayOf(now)]
@@ -95,6 +97,7 @@ function windowFor(range: Range, timeZone: string, now: number, earliestMs: numb
   // First whole hour that falls on the first day of the window.
   let startMs = Math.floor((now - (keys.length + 1) * 86400e3) / HOUR) * HOUR
   while (dayOf(startMs) < keys[0]) startMs += HOUR
+  if (range === '7d') return hourWindow(startMs, now)
   return { startMs, bucket: 'day', keys, keyOf: dayOf }
 }
 

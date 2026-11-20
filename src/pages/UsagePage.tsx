@@ -9,6 +9,7 @@ import { PageHead, Segmented, toast } from '../components/ui'
 import {
   byProviderOrder,
   clearDeviceName,
+  dailySeries,
   formatCount,
   formatPercent,
   formatTokens,
@@ -283,12 +284,13 @@ function Breakdown({ summary, kind, metric, onChange }: { summary: UsageSummary;
 
   if (kind === 'day') {
     const providers = summary.providers.map((t) => t.provider).sort(byProviderOrder)
-    const rows = [...summary.series].reverse().filter((b) => Object.keys(b.providers).length > 0)
+    const series = dailySeries(summary)
+    const rows = [...series].reverse().filter((b) => Object.keys(b.providers).length > 0)
     return (
       <table className="utable">
         <thead>
           <tr>
-            <th>{summary.bucket === 'hour' ? 'Hour' : 'Day'}</th>
+            <th>{summary.range === '24h' ? 'Hour' : 'Day'}</th>
             {providers.map((t) => (
               <th key={t} className="num utoolcol">
                 {providerLabel(t)}
@@ -465,7 +467,7 @@ export function UsagePage() {
                   onChange={(breakdown) => setPrefs({ breakdown })}
                   options={[
                     ['model', 'Model'],
-                    ['day', summary.bucket === 'hour' ? 'Hour' : 'Day'],
+                    ['day', summary.range === '24h' ? 'Hour' : 'Day'],
                     ['machine', 'Machine'],
                     ['account', 'Account'],
                   ]}
