@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
-import { isAlias, isMap, isNode, isSeq, parseDocument, visit } from 'yaml'
+import { isAlias, isMap, isNode, isSeq, parseDocument, visit, YAMLMap, YAMLSeq } from 'yaml'
+
+import { expandAliases } from './yaml-aliases'
 
 const json = (value: unknown) => isNode(value) ? value.toJSON() : value
 
@@ -31,11 +33,11 @@ export class UpstreamConfig {
     if (this.doc.errors.length || !isMap(this.doc.contents)) throw new Error('The proxy returned invalid config.yaml')
     let aliased = false
     visit(this.doc, (_, node) => { if (isAlias(node)) aliased = true })
-    if (aliased) this.doc.contents = this.doc.createNode(this.doc.toJS(), { aliasDuplicateObjects: false })
+    if (aliased) expandAliases(this.doc)
     const roots = ['models', 'config-version', 'server', 'management', 'access', 'credentials', 'requests', 'oauth', 'upstream', 'multimedia', 'observability']
-    this.v8 = roots.some((root) => this.doc.has(root)) || isMap(this.doc.get('api-keys')) || ['retry', 'cooldown', 'force-model-prefix'].some((key) => this.doc.hasIn(['routing', key])) || this.doc.hasIn(['client', 'codex', 'optimize-multi-agent-v2'])
+    this.v8 = roots.some((root) => this.doc.has(root)) || isMap(this.doc.get('api-keys')) || ['retry', 'cooldown', 'force-model-prefix'].some((key) => this.doc.hasIn(['routing', key])) || ['client', 'providers'].some((root) => this.doc.hasIn([root, 'codex', 'optimize-multi-agent-v2']))
     if (this.v8 && isSeq(this.doc.get('api-keys'))) {
-      if (!this.doc.hasIn(['access', 'api-keys'])) this.doc.setIn(['access', 'api-keys'], this.doc.createNode(json(this.doc.get('api-keys'))))
+      if (!this.doc.hasIn(['access', 'api-keys'])) this.doc.setIn(['access', 'api-keys'], this.doc.get('api-keys', true)!.clone())
       this.doc.delete('api-keys')
     }
     if (this.v8) {
@@ -43,17 +45,30 @@ export class UpstreamConfig {
         if (!this.doc.has(list)) continue
         const path = ['api-keys', FAMILY[list]]
         if (!this.doc.hasIn(path)) {
-          const entries = json(this.doc.get(list))
-          if (!Array.isArray(entries)) throw new Error(`The proxy returned an invalid ${list} list`)
-          const groups = entries.map((entry: UpstreamKey, i: number) => {
+          const entries = this.doc.get(list)
+          if (!isSeq(entries)) throw new Error(`The proxy returned an invalid ${list} list`)
+          const groups = new YAMLSeq(this.doc.schema)
+          for (const [i, entry] of entries.items.entries()) {
+            if (!isMap(entry)) throw new Error(`The proxy returned an invalid ${list} entry`)
             if (list === 'openai-compatibility') {
-              const { 'api-key-entries': keys = [], ...group } = entry
-              return { ...group, keys }
+              const group = entry.clone() as YAMLMap
+              group.set('keys', group.get('api-key-entries', true) ?? this.doc.createNode([]))
+              group.delete('api-key-entries')
+              groups.add(group)
+            } else {
+              const key = entry.clone() as YAMLMap
+              const group = new YAMLMap(this.doc.schema)
+              group.set('name', `${FAMILY[list]}-${i + 1}`)
+              const base = key.get('base-url', true)
+              if (base !== undefined) group.set('base-url', base)
+              key.delete('base-url')
+              const keys = new YAMLSeq(this.doc.schema)
+              keys.add(key)
+              group.set('keys', keys)
+              groups.add(group)
             }
-            const { 'base-url': base, ...key } = entry
-            return { name: `${FAMILY[list]}-${i + 1}`, 'base-url': base, keys: [key] }
-          })
-          this.doc.setIn(path, this.doc.createNode(groups))
+          }
+          this.doc.setIn(path, groups)
         }
         this.doc.delete(list)
       }
