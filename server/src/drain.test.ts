@@ -16,6 +16,7 @@ const weekly = (resetInHours: number): QuotaWindow[] => [
 let files: AuthFile[] = []
 let patches: { name: string; priority: number }[] = []
 let windows: Record<string, QuotaWindow[] | null> = {}
+let refusePriorityName: string | null = null
 
 const proxy = Bun.serve({
   hostname: '127.0.0.1',
@@ -26,6 +27,7 @@ const proxy = Bun.serve({
     if (url.pathname === '/v0/management/auth-files/fields' && req.method === 'PATCH') {
       const patch = (await req.json()) as { name: string; priority: number }
       patches.push(patch)
+      if (patch.name === refusePriorityName) return new Response('unavailable', { status: 503 })
       files = files.map((f) => (f.name === patch.name ? { ...f, priority: patch.priority } : f))
       return Response.json({ status: 'ok' })
     }
@@ -46,6 +48,7 @@ const drain = new Drain(db, proxy.url.origin, 'management', async (f) => {
 })
 
 beforeEach(async () => {
+  refusePriorityName = null
   files = ['curt-1', 'curt-2', 'curt-3', 'fresh', 'off'].map((name) => ({ name, auth_index: name, provider: 'claude', disabled: name === 'off' }))
   windows = { 'curt-1': weekly(4), 'curt-2': weekly(60), 'curt-3': weekly(130), fresh: [], off: weekly(1) }
   await drain.set(false)
@@ -100,6 +103,18 @@ test('turning off during a quota read cannot leave priorities enabled', async ()
   await Promise.all([enabling, disabling])
   expect(concurrent.on()).toBe(false)
   expect(files.every((f) => (f.priority ?? 0) === 0)).toBe(true)
+})
+
+test('a failed enable restores priorities already written and keeps the setting off', async () => {
+  files[0].priority = 7
+  refusePriorityName = 'curt-2'
+  await expect(drain.set(true)).rejects.toThrow('HTTP 503')
+  expect(drain.on()).toBe(false)
+  expect(files.map((f) => f.priority ?? 0)).toEqual([7, 0, 0, 0, 0])
+  refusePriorityName = null
+  await drain.set(true)
+  expect(drain.on()).toBe(true)
+  expect(files[0].priority).toBe(3)
 })
 
 test('turning it off clears every priority and stops ranking', async () => {

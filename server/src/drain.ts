@@ -85,15 +85,28 @@ export class Drain {
   }
 
   private async write(files: AuthFile[], priorities: Map<string, number>) {
-    for (const f of files) {
-      const priority = priorities.get(f.name) ?? 0
-      if ((f.priority ?? 0) === priority) continue
-      const res = await fetch(`${this.proxyUrl}/v0/management/auth-files/fields`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${this.managementKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: f.name, priority }),
-      })
-      if (!res.ok) throw new Error(`the proxy refused ${f.name}’s priority (HTTP ${res.status})`)
+    const written: AuthFile[] = []
+    try {
+      for (const f of files) {
+        const priority = priorities.get(f.name) ?? 0
+        if ((f.priority ?? 0) === priority) continue
+        await this.patchPriority(f.name, priority)
+        written.push(f)
+      }
+    } catch (error) {
+      const rollback = await Promise.allSettled(written.map((f) => this.patchPriority(f.name, f.priority ?? 0)))
+      const failures = rollback.filter((r) => r.status === 'rejected')
+      if (failures.length) throw new AggregateError([error, ...failures.map((r) => r.reason)], 'Could not restore account priorities after a failed update; retry the switch')
+      throw error
     }
+  }
+
+  private async patchPriority(name: string, priority: number) {
+    const res = await fetch(`${this.proxyUrl}/v0/management/auth-files/fields`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${this.managementKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, priority }),
+    })
+    if (!res.ok) throw new Error(`the proxy refused ${name}’s priority (HTTP ${res.status})`)
   }
 }
