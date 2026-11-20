@@ -22,7 +22,7 @@ test('paused borrowed accounts do not contribute available quota to the burndown
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } })
   Object.defineProperty(globalThis, 'matchMedia', { configurable: true, value: () => ({ matches: false }) })
   try {
-    const render = () => renderToStaticMarkup(createElement(StoreProvider, { children: createElement(Timeline, { sharing }) }))
+    const render = () => renderToStaticMarkup(createElement(StoreProvider, null, createElement(Timeline, { sharing })))
     expect(render()).not.toContain('No active account has a weekly window')
     sharing.lenders[0].paused = true
     expect(render()).toContain('No active account has a weekly window')
