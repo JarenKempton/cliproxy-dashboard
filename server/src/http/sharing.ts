@@ -18,6 +18,9 @@
 //   PUT    /api/pool/floor            { pool, window, percent }: share of a quota window kept for yourself (0 clears)
 //   GET    /api/pool/borrowed         peers this proxy borrows from, and what they share
 //   PUT    /api/pool/borrowed         { gateway, paused }: stop or resume using a lender, keeping its token
+//   GET    /api/pool/drain            { on }: whether accounts are ranked soonest reset first
+//   PUT    /api/pool/drain            { on }: turn that on (ranks now) or off (clears every priority)
+
 //   PUT    /api/pool/sharing          { pool, until }: a time, null (until turned off) or false (stop)
 //   POST   /api/pool/peers            { name } -> { token, code, expires }: token and invite code, shown once
 //   DELETE /api/pool/peers/:id
@@ -25,6 +28,7 @@
 
 import { Hono, type Context } from 'hono'
 import { getBunServer, getConnInfo } from 'hono/bun'
+import type { Drain } from '../drain'
 import { isPool, type SharingStore } from '../sharing'
 
 const MAX_FAILURES_PER_MINUTE = 10
@@ -121,7 +125,7 @@ export function trustedHost(hostname: string, extra: string[] = []) {
   return name === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(name) || name.includes(':') || name.endsWith('.ts.net') || extra.includes(name)
 }
 
-export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {
+export function poolSettings(pool: SharingStore, drain: Drain, extraHosts: string[] = []) {
   const app = new Hono().basePath('/api/pool')
 
   app.use('*', async (c, next) => {
@@ -155,6 +159,19 @@ export function poolSettings(pool: SharingStore, extraHosts: string[] = []) {
     if (!gateway?.trim() || typeof paused !== 'boolean') return c.json({ error: 'gateway and paused are required' }, 400)
     try {
       return (await pool.pauseLender(gateway, paused)) ? c.json({ ok: true }) : c.json({ error: `not borrowing from ${gateway}` }, 404)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502)
+    }
+  })
+
+  app.get('/drain', (c) => c.json({ on: drain.on() }))
+
+  app.put('/drain', async (c) => {
+    const { on } = await c.req.json<{ on?: boolean }>()
+    if (typeof on !== 'boolean') return c.json({ error: 'on is required' }, 400)
+    try {
+      await drain.set(on)
+      return c.json({ on: drain.on() })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 502)
     }

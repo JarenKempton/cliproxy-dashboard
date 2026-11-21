@@ -71,6 +71,8 @@ export const getSharing = () => call<SharingState>('GET', '')
 export const setSharing = (pool: Pool, until: number | null | false) => call<Pick<SharingState, 'sharing'>>('PUT', '/sharing', { pool, until })
 export const getLenders = () => call<Lender[]>('GET', '/borrowed')
 export const pauseLender = (gateway: string, paused: boolean) => call<{ ok: true }>('PUT', '/borrowed', { gateway, paused })
+export const getDrain = () => call<{ on: boolean }>('GET', '/drain')
+export const setDrain = (on: boolean) => call<{ on: boolean }>('PUT', '/drain', { on })
 export const setFloor = (pool: Pool, window: string, percent: number) => call<Pick<SharingState, 'floors'>>('PUT', '/floor', { pool, window, percent })
 export const setOwner = (owner: string) => call<{ owner: string }>('PUT', '/owner', { owner })
 // code: a one-time invite for <this dashboard>/pool/invite/<code>, valid until expires.

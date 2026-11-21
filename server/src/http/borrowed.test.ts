@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { parse, stringify } from 'yaml'
 import { openDb } from '../db/client'
+import { Drain } from '../drain'
 import { BorrowedUpstreams } from '../borrowed-upstreams'
 import { SharingStore } from '../sharing'
 import { poolSettings } from './sharing'
@@ -51,7 +52,8 @@ function fixture(config: Record<string, unknown> | string) {
   const store = restart()
   cleanups.push(() => { proxy.stop(true); db.$client.close() })
   return {
-    store, restart, writes, config: () => parse(text), refuse: (value: boolean) => { refused = value },
+    store, restart, writes, drain: new Drain(db, proxy.url.origin, 'test-management'),
+    config: () => parse(text), refuse: (value: boolean) => { refused = value },
     replace: (config: Record<string, unknown>) => { text = stringify(config) },
     onRead: (callback?: () => Promise<void>) => { onRead = callback },
   }
@@ -110,7 +112,11 @@ test('a rejected atomic config write leaves all providers unchanged and can be r
   const config = { 'claude-api-key': [claude(gateway)], 'codex-api-key': [{ 'api-key': 'pool-first', 'base-url': `${gateway}/pool/v1` }] }
   const f = fixture(config)
   f.refuse(true)
-  const response = await poolSettings(f.store).request('http://localhost/api/pool/borrowed', {
+  const app = poolSettings(f.store, f.drain)
+  const drain = await app.request('http://localhost/api/pool/drain')
+  expect(drain.status).toBe(200)
+  expect(await drain.json()).toEqual({ on: false })
+  const response = await app.request('http://localhost/api/pool/borrowed', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gateway, paused: true }),
   })
   expect(response.status).toBe(502)
