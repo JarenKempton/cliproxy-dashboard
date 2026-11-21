@@ -4,7 +4,7 @@ import type { QuotaError } from '../lib/errors'
 import { formatAgo, formatRelative, formatStamp } from '../lib/format'
 import { paceOf } from '../lib/pace'
 import { PROVIDER_NAMES, providerOf, type QuotaWindow } from '../lib/quota'
-import { accountStatus } from '../lib/status'
+import { accountStatus, quotaLimit, type Limit } from '../lib/status'
 import { accountName, useStore } from '../lib/store'
 import { ActivityChart } from './ActivityChart'
 import { ClearCooldown } from './ClearCooldown'
@@ -24,9 +24,12 @@ function level(remaining: number) {
 
 // floor: on a borrowed account, the share its owner keeps, drawn hatched.
 // refills: say when the window refills, as a time, rather than how long until it resets.
-export function WindowRow({ w, now, floor = 0, refills = false }: { w: QuotaWindow; now: number; floor?: number; refills?: boolean }) {
+export function WindowRow({ w, now, floor = 0, refills = false, limit }: { w: QuotaWindow; now: number; floor?: number; refills?: boolean; limit?: Limit | null }) {
   const remaining = Math.max(0, Math.min(100, 100 - w.usedPercent))
   const pace = paceOf(w, now)
+  const spent = !!limit && remaining <= 0
+  const held = !!limit && !spent
+  const waitsFor = limit?.binding ? `after ${limit.binding.label.toLowerCase()} reset` : 'after cooldown'
   // Where "remaining" would sit on an even burn; ahead of it means headroom.
   const paceMark = w.resetAtMs ? 100 - Math.min(100, Math.max(0, ((now - (w.resetAtMs - w.periodMs)) / w.periodMs) * 100)) : null
   const title = w.resetAtMs
@@ -34,7 +37,7 @@ export function WindowRow({ w, now, floor = 0, refills = false }: { w: QuotaWind
     : 'Window not started'
 
   return (
-    <div className="qrow" title={title}>
+    <div className={spent ? 'qrow spent' : held ? 'qrow held' : 'qrow'} title={title}>
       <div className="qrow-head">
         <span>{w.label}</span>
         <span className={`mono qrow-value ${level(remaining - floor)}`}>
@@ -44,13 +47,19 @@ export function WindowRow({ w, now, floor = 0, refills = false }: { w: QuotaWind
       <div className={`dbar ${level(remaining)}`} role="meter" aria-label={`${w.label} remaining`} aria-valuenow={Math.round(remaining)} aria-valuemin={0} aria-valuemax={100}>
         {remaining > 0 && <div className="dbar-fill" style={{ width: `${remaining}%` }} />}
         {floor > 0 && <div className="dbar-floor" style={{ width: `${Math.min(floor, remaining)}%` }} title={`The owner keeps ${floor}%`} />}
-        {paceMark !== null && pace.kind !== 'maxed' && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
+        {paceMark !== null && pace.kind !== 'maxed' && !limit && <div className="dbar-pace" style={{ left: `${paceMark}%` }} />}
       </div>
       <div className="qrow-meta mono">
         <span className="faint">
-          {!w.resetAtMs ? 'not started' : refills ? `refills ${formatStamp(w.resetAtMs, now)}` : `resets ${formatRelative(w.resetAtMs, now)}`}
+          {held
+            ? waitsFor
+            : !w.resetAtMs
+              ? 'not started'
+              : refills || spent
+                ? `${spent ? 'resets' : 'refills'} ${formatStamp(w.resetAtMs, now)}`
+                : `resets ${formatRelative(w.resetAtMs, now)}`}
         </span>
-        {pace.kind === 'short' && (
+        {pace.kind === 'short' && !limit && (
           <span className="warn-text" title="At your current rate you'll hit this limit before it resets.">
             Runs out {formatStamp(pace.runsOutAtMs, now)}
           </span>
@@ -81,6 +90,7 @@ export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActi
   const status = accountStatus(file, now)
   const provider = providerOf(file)
   const windows = state?.quota?.windows ?? []
+  const limit = quotaLimit(file, windows, now)
 
   return (
     <article
@@ -124,7 +134,7 @@ export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActi
             {state?.error && <ErrorBlock error={state.error} now={now} stale={windows.length > 0} />}
             {!state?.error && !windows.length && <p className="faint small-note">{state?.loading ? 'Loading…' : 'No quota data'}</p>}
             {windows.map((w) => (
-              <WindowRow key={w.id} w={w} now={now} />
+              <WindowRow key={w.id} w={w} now={now} limit={limit} />
             ))}
             {state?.quota?.resetCredits && (
               <ResetCredits file={file} credits={state.quota.resetCredits} windows={windows} onSpent={() => refreshQuota(file)} />
@@ -137,7 +147,11 @@ export function QuotaCard({ file, inUse }: { file: AuthFile; inUse?: AccountActi
 
       <footer className="qcard-foot">
         {/* Say something only when there's a problem. */}
-        {status.tone === 'warn' || status.tone === 'bad' ? (
+        {limit ? (
+          <span className="qcard-status" title={limit.reason}>
+            {limit.until ? `Back ${formatStamp(limit.until, now)}` : limit.reason}
+          </span>
+        ) : status.tone === 'warn' || status.tone === 'bad' ? (
           <span className={`qcard-status ${status.tone}`} title={status.text}>
             {status.text}
           </span>

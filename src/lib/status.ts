@@ -1,10 +1,11 @@
 import type { AuthFile } from './api'
 import { formatRelative } from './format'
+import type { QuotaWindow } from './quota'
 
 export type Tone = 'good' | 'warn' | 'bad' | 'off'
 
 // status_message is often a raw upstream JSON error body.
-function friendlyMessage(raw?: string): string | undefined {
+export function friendlyMessage(raw?: string): string | undefined {
   if (!raw) return undefined
   try {
     const parsed = JSON.parse(raw)
@@ -31,4 +32,19 @@ export function accountStatus(f: AuthFile, now: number): { tone: Tone; text: str
   if (cooldown) return { tone: 'warn', text: `${message ?? 'Cooling down'} · back ${formatRelative(cooldown, now)}` }
   if (f.unavailable || f.status === 'error') return { tone: 'bad', text: message ?? 'Error' }
   return { tone: 'good', text: 'Active' }
+}
+
+export type Limit = { reason: string; until: number | null; binding?: QuotaWindow }
+
+export function quotaLimit(f: AuthFile, windows: QuotaWindow[], now: number): Limit | null {
+  if (f.disabled) return null
+  const cooldown = cooldownUntil(f, now)
+  const binding = windows
+    .filter((w) => w.usedPercent >= 100)
+    .sort((a, b) => (b.resetAtMs ?? Infinity) - (a.resetAtMs ?? Infinity))[0]
+  if (!binding && !cooldown) return null
+  const reset = binding?.resetAtMs && binding.resetAtMs > now ? binding.resetAtMs : null
+  const until = Math.max(reset ?? 0, cooldown ?? 0) || null
+  const reason = binding ? `${binding.label} limit reached` : friendlyMessage(f.status_message) ?? 'Cooling down'
+  return { reason, until, binding }
 }

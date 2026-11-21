@@ -122,6 +122,22 @@
   color: var(--warn);
 }
 
+.qrow.spent .qrow-value {
+  color: var(--fg-2);
+}
+
+.qrow.held {
+  opacity: 0.5;
+}
+
+.qrow.held .dbar {
+  --c: var(--fg-3);
+}
+
+.qrow.held .qrow-value {
+  color: var(--fg-2);
+}
+
 /* Error ---------------------------------------------------------------------- */
 
 .qcard.has-error {
