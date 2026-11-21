@@ -87,6 +87,7 @@ export type AuthFile = {
   label?: string
   disabled?: boolean
   unavailable?: boolean
+  priority?: number
   status?: string
   status_message?: string
   created_at?: string
