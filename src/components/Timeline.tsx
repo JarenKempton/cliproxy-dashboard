@@ -83,6 +83,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
     .filter((l) => l.w)
 
   const hours = useAccountHours()
+  const activeLenders = sharing.lenders.filter((lender) => !lender.paused)
   const pools = new Map<string, PoolAccount[]>()
   if (burndown) {
     for (const f of files.filter((file) => !file.disabled)) {
@@ -95,7 +96,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
       const peerCost = new Map(mine.filter((h) => h.peerMicros > 0).map((h) => [h.hour, h.peerMicros]))
       pools.set(provider, [...(pools.get(provider) ?? []), { cost, peerCost, window: { ...weekly, resetAtMs: weekly.resetAtMs } }])
     }
-    for (const lender of sharing.lenders) {
+    for (const lender of activeLenders) {
       for (const lent of lender.pools) {
         if (lent.until !== null && lent.until <= now) continue
         for (const a of lent.accounts) {
@@ -114,7 +115,7 @@ export function Timeline({ sharing }: { sharing: SharingOverview }) {
     }
   }
   const borrowedFor = (provider: string) =>
-    sharing.lenders.flatMap((l) =>
+    activeLenders.flatMap((l) =>
       l.pools.filter((p) => p.provider === provider && (p.until === null || p.until > now)).map((p) => ({ owner: lenderName(l), until: p.until, floors: p.floors })),
     )
   const peerLabelFor = (provider: string) => {

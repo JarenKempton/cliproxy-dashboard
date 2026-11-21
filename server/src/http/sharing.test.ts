@@ -2,12 +2,14 @@ import { afterAll, beforeEach, expect, setSystemTime, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parse, stringify } from 'yaml'
 import { sendManagementVia } from '../../../src/lib/api'
 import { openDb } from '../db/client'
 import { requests } from '../db/schema'
 import { hashKey } from '../usage/cliproxy-record'
 import { Drain } from '../drain'
 import { SharingStore } from '../sharing'
+import type { UpstreamKey } from '../upstream-config'
 import { poolGateway, poolSettings } from './sharing'
 
 type Account = { name: string; auth_index: string; email: string; provider: string; unavailable?: boolean; models: string[] }
@@ -19,7 +21,9 @@ const proxy = {
   accountsDown: false,
   unreadable: [] as string[],
   listsDown: false,
-  upstreamKeys: [] as { 'api-key': string; 'base-url': string }[],
+  refuseConfig: false,
+  configWrites: 0,
+  upstreamKeys: [] as UpstreamKey[],
   lists: {} as Record<string, unknown[]>,
   apiKeys: ['sk-own-machine'],
   accounts: [] as Account[],
@@ -44,11 +48,23 @@ const upstream = Bun.serve({
     const list = url.pathname.match(/^\/v0\/management\/(claude-api-key|codex-api-key|openai-compatibility)$/)?.[1]
     if (list && req.method === 'PUT') {
       proxy.lists[list] = (await req.json()) as unknown[]
+      if (list === 'claude-api-key') proxy.upstreamKeys = proxy.lists[list] as typeof proxy.upstreamKeys
       return Response.json({ status: 'ok' })
     }
     if (list && proxy.listsDown) return new Response('down', { status: 500 })
     if (list) return Response.json({ [list]: proxy.lists[list] ?? [] })
-    if (url.pathname === '/v0/management/config.yaml') return new Response('api-keys: []\n')
+    if (url.pathname === '/v0/management/config.yaml') {
+      if (proxy.listsDown) return new Response('unavailable', { status: 503 })
+      if (req.method === 'PUT') {
+        proxy.configWrites++
+        if (proxy.refuseConfig) return new Response('unavailable', { status: 503 })
+        const config = parse(await req.text())
+        proxy.lists = Object.fromEntries(['claude-api-key', 'codex-api-key', 'openai-compatibility'].map((list) => [list, config[list] ?? []]))
+        proxy.upstreamKeys = proxy.lists['claude-api-key'] as typeof proxy.upstreamKeys
+        return Response.json({ status: 'ok' })
+      }
+      return new Response(stringify({ ...proxy.lists, 'claude-api-key': proxy.upstreamKeys }))
+    }
     if (url.pathname === '/v0/management/api-call') {
       const call = (await req.json()) as { url: string; authIndex: string }
       if (call.url.endsWith('/usage')) proxy.quotaReads++
@@ -90,6 +106,8 @@ beforeEach(() => {
   ]
   proxy.forwarded = []
   store.forgetStatus()
+  proxy.refuseConfig = false
+  proxy.configWrites = 0
 })
 
 const borrow = (model: string, headers: Record<string, string> = { 'x-api-key': token }) =>
@@ -257,6 +275,45 @@ test('finds the peers this proxy borrows from in its own upstream config', async
   expect(lender.pools.map((p) => [p.pool, p.until])).toEqual([['claude', null]])
 })
 
+test('pausing a lender stops every upstream entry pointing at it, keeps its token, and resumes exactly', async () => {
+  const pool = `${gateway.url.origin}/pool`
+  const claude = [
+    { 'api-key': token, 'base-url': pool, priority: -1, 'excluded-models': ['claude-opus-*'] },
+    { 'api-key': 'sk-ant-real', 'base-url': 'https://api.anthropic.com' },
+  ]
+  const grok = [{ name: 'pool-jaren', 'base-url': `${pool}/v1`, 'api-key-entries': [{ 'api-key': token }], models: [] }]
+  proxy.upstreamKeys = claude
+  proxy.lists = { 'codex-api-key': [], 'openai-compatibility': grok }
+
+  expect(await store.pauseLender(gateway.url.origin, true)).toBe(true)
+  expect(proxy.lists['claude-api-key']).toEqual([{ ...claude[0], 'excluded-models': ['claude-opus-*', '*'] }, claude[1]])
+  expect(proxy.lists['openai-compatibility']).toEqual([{ ...grok[0], disabled: true }])
+  expect(proxy.lists['codex-api-key']).toEqual([])
+
+  expect((await store.lenders()).map((l) => l.paused)).toEqual([true])
+
+  await store.pauseLender(gateway.url.origin, false)
+  expect(proxy.lists['claude-api-key']).toEqual(claude)
+  expect(proxy.lists['openai-compatibility']).toEqual(grok)
+  expect(await store.pauseLender('https://nobody.example', true)).toBe(false)
+})
+
+test('concurrent pauses preserve both lenders’ changes', async () => {
+  proxy.upstreamKeys = [
+    { 'api-key': 'pool-first', 'base-url': 'https://first.example/pool' },
+    { 'api-key': 'pool-second', 'base-url': 'https://second.example/pool' },
+  ]
+  proxy.lists = { 'codex-api-key': [], 'openai-compatibility': [] }
+  expect(await Promise.all([
+    store.pauseLender('https://first.example', true),
+    store.pauseLender('https://second.example', true),
+  ])).toEqual([true, true])
+  expect(proxy.lists['claude-api-key']).toEqual([
+    { 'api-key': 'pool-first', 'base-url': 'https://first.example/pool', 'excluded-models': ['*'] },
+    { 'api-key': 'pool-second', 'base-url': 'https://second.example/pool', 'excluded-models': ['*'] },
+  ])
+})
+
 test('refuses once a window is down to the share its owner keeps, and ignores windows the pool lacks', async () => {
   store.share('claude', null)
   store.setFloor('claude', 'Weekly', 70)
@@ -336,7 +393,8 @@ test('an invite expires after 15 minutes', () => {
 })
 
 test('joining again after a re-invite swaps in the new token instead of keeping the dead one', async () => {
-  proxy.lists = { 'claude-api-key': [{ 'api-key': 'pool-revoked', 'base-url': `${gateway.url.origin}/pool`, priority: -1 }] }
+  proxy.upstreamKeys = [{ 'api-key': 'pool-revoked', 'base-url': `${gateway.url.origin}/pool`, priority: -1 }] as typeof proxy.upstreamKeys
+  proxy.lists = {}
   const { code } = store.invites.mint(token)
   await store.join(`${gateway.url.origin}/pool/invite/${code}`)
   expect(proxy.lists['claude-api-key']).toEqual([{ 'api-key': token, 'base-url': `${gateway.url.origin}/pool`, priority: -1, 'disable-cooling': true }])
@@ -346,7 +404,7 @@ test('an invite isn’t spent when this proxy’s config can’t be read', async
   const { code } = store.invites.mint(token)
   const link = `${gateway.url.origin}/pool/invite/${code}`
   proxy.listsDown = true
-  await expect(store.join(link)).rejects.toThrow('refused to list')
+  await expect(store.join(link)).rejects.toThrow('refused to read')
   proxy.listsDown = false
   expect(await store.join(link)).toMatchObject({ gateway: gateway.url.origin })
 })

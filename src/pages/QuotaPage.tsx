@@ -39,6 +39,7 @@ export function QuotaPage() {
       .flatMap((p) =>
         p.accounts.map((a, i) => ({
           key: `${l.gateway}|${p.pool}|${i}`,
+          lender: l,
           owner: lenderName(l),
           pool: p,
           account: a,
@@ -70,7 +71,15 @@ export function QuotaPage() {
           <QuotaCard key={f.auth_index} file={f} inUse={f === current ? activity.get(f.auth_index) : undefined} />
         ))}
         {borrowed.map((b) => (
-          <BorrowedCard key={b.key} owner={b.owner} pool={b.pool} account={b.account} name={b.name} now={now} />
+          <BorrowedCard
+            key={b.key}
+            owner={b.owner}
+            pool={b.pool}
+            account={b.account}
+            name={b.name}
+            now={now}
+            paused={b.lender.paused}
+          />
         ))}
       </div>
 

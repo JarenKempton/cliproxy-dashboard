@@ -8,6 +8,8 @@
 // - After a single 401 the bridge stops forwarding until the server is
 //   restarted: CLIProxyAPI bans an IP for ~30 min after 5 failed key attempts.
 
+import { createHash } from 'node:crypto'
+import { withConfigWrite } from '../config-write'
 import { Hono } from 'hono'
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { META_MINT_URL, metaQuota } from './meta-quota'
@@ -163,6 +165,12 @@ export function managementApp(target: string, managementKey: string, allowWrites
   }
   const app = new Hono()
 
+  app.use('*', (c, next) => {
+    const pathname = new URL(c.req.url).pathname.slice(MANAGEMENT_PREFIX.length)
+    const writesConfig = c.req.method !== 'GET' && (allowWrites || WRITE_RULES.some((rule) => rule.touchesConfig && rule.methods.includes(c.req.method) && rule.path.test(pathname)))
+    return writesConfig ? withConfigWrite(target, next) : next()
+  })
+
   app.all('*', async (c) => {
     const url = new URL(c.req.url)
     const pathname = url.pathname.slice(MANAGEMENT_PREFIX.length) || '/'
@@ -187,7 +195,10 @@ export function managementApp(target: string, managementKey: string, allowWrites
       if (method === 'GET') {
         if (BLOCKED_GETS.some((re) => re.test(pathname))) return deny(403, 'Blocked by guard: this endpoint has side effects')
         const upstream = await forward()
-        return reply(upstream.status, await upstream.text(), upstream.headers.get('content-type') ?? 'application/json')
+        const text = await upstream.text()
+        const response = reply(upstream.status, text, upstream.headers.get('content-type') ?? 'application/json')
+        if (pathname === '/config.yaml' && upstream.ok) response.headers.set('ETag', `"${createHash('sha256').update(text).digest('hex')}"`)
+        return response
       }
 
       const body = await c.req.text()
@@ -224,7 +235,14 @@ export function managementApp(target: string, managementKey: string, allowWrites
       if (rule?.touchesConfig || allowWrites) {
         const current = await managementGet('/config.yaml')
         if (!current.ok) return deny(502, `Couldn't back up config.yaml before writing (HTTP ${current.status})`)
-        saveBackup(await current.text())
+        const currentText = await current.text()
+        if (pathname === '/config.yaml' && method === 'PUT') {
+          const revision = c.req.header('If-Match')
+          if (!revision) return deny(428, 'Reload config before saving: a base revision is required')
+          const actual = `"${createHash('sha256').update(currentText).digest('hex')}"`
+          if (revision !== actual) return deny(409, 'Config changed since you loaded it. Reload and reapply your edits.')
+        }
+        saveBackup(currentText)
       }
       const upstream = apiCall && isMetaQuota(apiCall)
         ? new Response(await metaQuota(managementGet, String(apiCall.authIndex ?? apiCall.auth_index)), { headers: { 'Content-Type': 'application/json' } })

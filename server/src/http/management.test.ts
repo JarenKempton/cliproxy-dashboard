@@ -67,3 +67,22 @@ describe('account login bridge', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
+
+test('stale Config editor saves cannot undo a completed lender pause', async () => {
+  const initial = 'request-retry: 0\n'
+  let current = initial
+  fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(Object.assign(async (_url: string | URL | Request, init?: RequestInit) => {
+    if (init?.method === 'PUT') current = String(init.body)
+    return new Response(current)
+  }, { preconnect: fetch.preconnect }))
+  const app = managementApp(TARGET, 'secret', false)
+  const revision = `"${new Bun.CryptoHasher('sha256').update(initial).digest('hex')}"`
+  current += 'codex-api-key: [{api-key: fake, excluded-models: ["*"]}]\n'
+  const result = await app.request('/v0/management/config.yaml', {
+    method: 'PUT', headers: { 'Content-Type': 'application/yaml', 'If-Match': revision }, body: 'request-retry: 2\n',
+  })
+  expect(result.status).toBe(409)
+  expect(current).toContain('excluded-models')
+  const missing = await app.request('/v0/management/config.yaml', { method: 'PUT', body: 'request-retry: 2\n' })
+  expect(missing.status).toBe(428)
+})

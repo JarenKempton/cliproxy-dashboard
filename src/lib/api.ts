@@ -17,7 +17,7 @@ export class ApiError extends Error {
 // Last proxy version seen in a response header.
 export let proxyVersion: string | null = null
 
-type Options = { body?: unknown; raw?: string; contentType?: string }
+type Options = { body?: unknown; raw?: string; contentType?: string; headers?: Record<string, string>; onResponse?: (response: Response) => void }
 
 // The usage server reads quota through its own management bridge, in process.
 let send: (path: string, init: RequestInit) => Promise<Response> = (path, init) => fetch(path, init)
@@ -29,9 +29,10 @@ async function request(method: string, path: string, opts: Options = {}): Promis
   const body = opts.raw ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body))
   const res = await send(BASE + path, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': opts.contentType ?? 'application/json' },
+    headers: body === undefined ? undefined : { 'Content-Type': opts.contentType ?? 'application/json', ...opts.headers },
     body,
   })
+  opts.onResponse?.(res)
   proxyVersion = res.headers.get('x-cpa-version') ?? proxyVersion
   const text = await res.text()
   let parsed: unknown = text
@@ -163,12 +164,14 @@ export const submitLoginCallback = (provider: LoginProvider, redirectUrl: string
 
 // --- Config ------------------------------------------------------------------
 
-export async function getConfigYaml(): Promise<string> {
-  return String(await request('GET', '/config.yaml'))
+export async function getConfigYaml(): Promise<{ text: string; revision: string }> {
+  let revision = ''
+  const text = String(await request('GET', '/config.yaml', { onResponse: (response) => { revision = response.headers.get('etag') ?? '' } }))
+  return { text, revision }
 }
 
-export const putConfigYaml = (yaml: string) =>
-  request('PUT', '/config.yaml', { raw: yaml, contentType: 'application/yaml' })
+export const putConfigYaml = (yaml: string, revision: string) =>
+  request('PUT', '/config.yaml', { raw: yaml, contentType: 'application/yaml', headers: { 'If-Match': revision } })
 
 // --- Proxy API keys ----------------------------------------------------------
 

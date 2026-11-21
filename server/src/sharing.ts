@@ -14,6 +14,9 @@ import { saveBackup } from './http/management'
 import { hashKey } from './usage/cliproxy-record'
 import { accountHours } from './usage/summary'
 import { Invites, joinPeer } from './pool-invites'
+import { withConfigWrite } from './config-write'
+import { BorrowedUpstreams } from './borrowed-upstreams'
+import { gatewayOf, isPaused } from './upstream-config'
 
 export const POOLS = { claude: 'claude', codex: 'codex', grok: 'xai', muse: 'meta' } as const
 export type Pool = keyof typeof POOLS
@@ -34,26 +37,25 @@ export function peerKeyHashes(db: Db) {
 const STATUS_TTL_MS = 60e3
 const LAST_READING_MS = 15 * 60e3
 const COST_HISTORY_MS = 14 * 86400e3
-const GATEWAY = /^(.*)\/pool(\/v1)?\/?$/
-
-type UpstreamKey = { 'api-key'?: string; 'base-url'?: string; 'api-key-entries'?: { 'api-key'?: string }[] }
-
 export class SharingStore {
   private lastWindows = new Map<string, { at: number; windows: QuotaWindow[] }>()
   readonly invites = new Invites()
   private status = new Map<number, { at: number; body: LenderStatus }>()
+  private upstreams: BorrowedUpstreams
 
   constructor(
     private db: Db,
     private proxyUrl: string,
     private managementKey: string,
-  ) {}
+  ) {
+    this.upstreams = new BorrowedUpstreams(db, (path, init) => this.management(path, init), proxyUrl)
+  }
 
-  private management(path: string, init?: { method: string; body?: unknown }) {
+  private management(path: string, init?: { method: string; body?: unknown; raw?: string }) {
     return fetch(`${this.proxyUrl}/v0/management${path}`, {
       method: init?.method ?? 'GET',
       headers: { Authorization: `Bearer ${this.managementKey}`, 'Content-Type': 'application/json' },
-      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+      body: init?.raw ?? (init?.body === undefined ? undefined : JSON.stringify(init.body)),
     })
   }
 
@@ -95,30 +97,34 @@ export class SharingStore {
 
   // The peer row comes first and is undone if the proxy refuses the key, so a
   // key in the proxy always has a row to revoke it from.
-  async addPeer(name: string): Promise<string> {
-    const token = `pool-${randomBytes(24).toString('base64url')}`
-    const proxyKey = `sk-pool-${randomBytes(24).toString('base64url')}`
-    const res = await this.management('/api-keys')
-    if (!res.ok) throw new Error(`the proxy refused to list keys (HTTP ${res.status})`)
-    const { 'api-keys': existing = [] } = (await res.json()) as { 'api-keys'?: string[] }
-    await this.backupConfig()
-    const { id } = this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).returning({ id: poolPeers.id }).get()
-    const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] }).catch((e: Error) => e)
-    if (put instanceof Error || !put.ok) {
-      this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
-      throw new Error(put instanceof Error ? `couldn’t reach the proxy: ${put.message}` : `the proxy refused the new key (HTTP ${put.status})`)
-    }
-    setKeyLabel(this.db, hashKey(proxyKey), `${PEER_LABEL}${name}`)
-    return token
+  addPeer(name: string): Promise<string> {
+    return withConfigWrite(this.proxyUrl, async () => {
+      const token = `pool-${randomBytes(24).toString('base64url')}`
+      const proxyKey = `sk-pool-${randomBytes(24).toString('base64url')}`
+      const res = await this.management('/api-keys')
+      if (!res.ok) throw new Error(`the proxy refused to list keys (HTTP ${res.status})`)
+      const { 'api-keys': existing = [] } = (await res.json()) as { 'api-keys'?: string[] }
+      await this.backupConfig()
+      const { id } = this.db.insert(poolPeers).values({ name, tokenHash: hashToken(token), proxyKey, createdAt: new Date() }).returning({ id: poolPeers.id }).get()
+      const put = await this.management('/api-keys', { method: 'PUT', body: [...existing, proxyKey] }).catch((e: Error) => e)
+      if (put instanceof Error || !put.ok) {
+        this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+        throw new Error(put instanceof Error ? `couldn’t reach the proxy: ${put.message}` : `the proxy refused the new key (HTTP ${put.status})`)
+      }
+      setKeyLabel(this.db, hashKey(proxyKey), `${PEER_LABEL}${name}`)
+      return token
+    })
   }
 
   // The key's label stays, so past usage is still attributed to the peer.
-  async removePeer(id: number) {
-    const peer = this.db.select().from(poolPeers).where(eq(poolPeers.id, id)).get()
-    if (!peer) return
-    const res = await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
-    if (!res.ok && res.status !== 404) throw new Error(`the proxy refused to remove the key (HTTP ${res.status})`)
-    this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+  removePeer(id: number) {
+    return withConfigWrite(this.proxyUrl, async () => {
+      const peer = this.db.select().from(poolPeers).where(eq(poolPeers.id, id)).get()
+      if (!peer) return
+      const res = await this.management(`/api-keys?value=${encodeURIComponent(peer.proxyKey)}`, { method: 'DELETE' })
+      if (!res.ok && res.status !== 404) throw new Error(`the proxy refused to remove the key (HTTP ${res.status})`)
+      this.db.delete(poolPeers).where(eq(poolPeers.id, id)).run()
+    })
   }
 
   // Model ids of this proxy's Grok and Muse accounts, which a borrower's proxy
@@ -138,7 +144,7 @@ export class SharingStore {
 
   // Adds a lender from its invite link to this proxy's config.
   join(link: string) {
-    return joinPeer(link, (path, init) => this.management(path, init), () => this.backupConfig())
+    return joinPeer(link, this.upstreams)
   }
 
   peerFor(token: string) {
@@ -274,31 +280,33 @@ export class SharingStore {
     })
   }
 
-  // Peers this proxy borrows from, found in its own config as upstreams whose
-  // base-url is a peer's /pool gateway, with what each shares right now.
   async lenders(): Promise<Lender[]> {
-    const found = new Map<string, { gateway: string; token: string }>()
-    for (const list of ['claude-api-key', 'codex-api-key', 'openai-compatibility']) {
-      const res = await this.management(`/${list}`)
-      if (!res.ok) continue
-      const entries = (((await res.json()) as Record<string, UpstreamKey[] | null>)[list] ?? []) as UpstreamKey[]
-      for (const e of entries) {
-        const gateway = e['base-url']?.match(GATEWAY)?.[1]
-        const tokens = [e['api-key'], ...(e['api-key-entries'] ?? []).map((k) => k['api-key'])].filter((t): t is string => !!t)
-        for (const token of gateway ? tokens : []) found.set(`${gateway}|${token}`, { gateway: gateway!, token })
+    const found = new Map<string, { tokens: Set<string>; paused: boolean }>()
+    for (const route of (await this.upstreams.read()).routes()) {
+      const gateway = gatewayOf(route.entry)
+      if (!gateway) continue
+      const lender = found.get(gateway) ?? { tokens: new Set<string>(), paused: true }
+      lender.paused &&= isPaused(route)
+      for (const token of [route.entry['api-key'], ...(route.entry['api-key-entries'] ?? []).map((key) => key['api-key'])]) {
+        if (token) lender.tokens.add(token)
       }
+      found.set(gateway, lender)
     }
-    return Promise.all(
-      [...found.values()].map(async ({ gateway, token }): Promise<Lender> => {
+    return Promise.all([...found].map(async ([gateway, { tokens, paused }]): Promise<Lender> => {
+      let error = 'No pool token configured'
+      for (const token of tokens) {
         try {
-          const res = await fetch(`${gateway}/pool/status`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15e3) })
-          if (!res.ok) return { gateway, pools: [], error: `HTTP ${res.status}` }
-          const status = (await res.json()) as LenderStatus
-          return { gateway, owner: status.owner || undefined, pools: status.pools }
-        } catch (e) {
-          return { gateway, pools: [], error: (e as Error).message }
-        }
-      }),
-    )
+          const response = await fetch(`${gateway}/pool/status`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15e3) })
+          if (!response.ok) { error = `HTTP ${response.status}`; continue }
+          const status = await response.json() as LenderStatus
+          return { gateway, paused, owner: status.owner || undefined, pools: status.pools }
+        } catch (e) { error = (e as Error).message }
+      }
+      return { gateway, paused, pools: [], error }
+    }))
+  }
+
+  pauseLender(gateway: string, paused: boolean) {
+    return this.upstreams.pause(gateway, paused)
   }
 }
