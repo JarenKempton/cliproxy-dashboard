@@ -8,6 +8,21 @@
 }
 
 @media (max-width: 760px) {
+  .input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .krow > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .krow > .switch {
+    margin-left: auto;
+  }
+
   /* Shell: a slim top bar; the sidebar slides in from the left as a menu. */
   .shell {
     display: block;
@@ -97,6 +112,10 @@
   /* Quota */
   .qgrid {
     grid-template-columns: 1fr;
+  }
+
+  .qcard .activity {
+    display: none;
   }
 
   /* Quota windows: one week, each account's label above a full-width lane. */
