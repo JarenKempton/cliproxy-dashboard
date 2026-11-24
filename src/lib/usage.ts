@@ -1,4 +1,4 @@
-// Client for the usage server (server/), reached through the dev server's /api proxy.
+// Client for the usage server (server/), reached through /api.
 
 export type Range = '24h' | '7d' | '30d' | '90d' | 'all'
 
@@ -41,62 +41,43 @@ export type UsageSummary = {
   byAccount: AccountUsage[]
 }
 
-export type Device = {
-  kind: 'key' | 'ip'
-  value: string
-  name: string | null
-  nameSource: 'custom' | 'tailscale' | null
-  tailscale: { name: string; os: string | null; online: boolean | null; isSelf: boolean } | null
-  requests: number
-  costMicros: number
-  lastSeen: number | null
-  userAgent: string | null
+export type Health = {
+  collector: {
+    connected: boolean
+    since: number | null
+    lastRecordAt: number | null
+    stored: number
+    lastError: string | null
+  }
+  pricesLoadedAt: number | null
+  tailnet: { syncedAt: number | null; error: string | null }
 }
+
+export type IdentityKind = 'key' | 'ip'
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
   })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
-  return body as T
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
+  }
+  return (await res.json()) as T
 }
 
 // The viewer's time zone, so days are local days.
 const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 
+export const getHealth = () => api<Health>('/health')
 export const getUsage = (range: Range) => api<UsageSummary>(`/usage?range=${range}&tz=${encodeURIComponent(timeZone())}`)
-export const getDevices = () => api<Device[]>('/devices')
 
-// peerMicros: the part peers borrowing this proxy's accounts sent.
-export type AccountHour = { provider: string; account: string; hour: number; costMicros: number; peerMicros: number }
-export const getAccountHours = (days: number) => api<AccountHour[]>(`/account-hours?days=${days}`)
-
-export type AccountActivity = { accountRef: string; requests: number; lastAt: number; machines: { name: string; requests: number }[] }
-export const getActivity = (minutes: number) => api<{ minutes: number; accounts: AccountActivity[] }>(`/activity?minutes=${minutes}`)
-
-export const nameDevice = (kind: Device['kind'], value: string, name: string) =>
+export const nameDevice = (kind: IdentityKind, value: string, name: string) =>
   api('/devices/name', { method: 'PUT', body: JSON.stringify({ kind, value, name }) })
 
-export const clearDeviceName = (kind: Device['kind'], value: string) =>
+export const clearDeviceName = (kind: IdentityKind, value: string) =>
   api('/devices/name', { method: 'DELETE', body: JSON.stringify({ kind, value }) })
-
-export const getKeyLabels = () => api<Record<string, string>>('/keys/labels')
-
-export const setKeyLabel = (key: string, label: string) =>
-  api('/keys/label', { method: 'PUT', body: JSON.stringify({ key, label }) })
-
-export const dedicateKey = (key: string, machine: string) =>
-  api('/keys/machine', { method: 'PUT', body: JSON.stringify({ key, name: machine }) })
-
-// Same short hash the server stores (sha256, first 16 hex chars).
-export async function hashKey(key: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0'))
-    .join('')
-    .slice(0, 16)
-}
 
 // Local calendar day ("YYYY-MM-DD") of each series bucket.
 export function bucketDay(summary: UsageSummary): (key: number | string) => string {

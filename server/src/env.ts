@@ -17,28 +17,9 @@ export const env = {
   proxyHost: proxy.hostname,
   proxyPort: Number(proxy.port || 8317),
 
-  // Writes beyond the dashboard's own actions; leave unset.
-  allowWrites: process.env.CPA_ALLOW_WRITES === '1',
-
-  // Serves the dashboard and carries the management key: keep it on loopback
-  // behind `tailscale serve`.
+  // Dashboard listener.
   host: process.env.USAGE_SERVER_HOST ?? '127.0.0.1',
   port: Number(process.env.USAGE_SERVER_PORT ?? 5174),
-
-  // Local-network listener (connect and history import) for machines without
-  // Tailscale; 0 disables it.
-  lanPort: Number(process.env.LAN_PORT ?? process.env.LAN_IMPORT_PORT ?? 0),
-  // Port `tailscale serve` exposes the dashboard on.
-  tailnetDashboardPort: Number(process.env.TAILNET_DASHBOARD_PORT ?? 5443),
-  // Overrides when the dashboard and proxy are on different tailnet machines.
-  tailnetDashboardUrl: process.env.TAILNET_DASHBOARD_URL,
-  tailnetProxyUrl: process.env.TAILNET_PROXY_URL,
-  // Other names the dashboard is reached by (a reverse proxy, a LAN host
-  // name), comma-separated. Loopback, IPs and *.ts.net are always accepted.
-  dashboardHosts: (process.env.DASHBOARD_HOSTS ?? '')
-    .split(',')
-    .map((h) => h.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[:/].*$/, ''))
-    .filter(Boolean),
 
   // Built dashboard (`npm run build`); served when present.
   staticDir: process.env.DASHBOARD_DIST ?? 'dist',

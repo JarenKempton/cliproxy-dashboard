@@ -1,119 +1,73 @@
-import { ChartColumn, Gauge, KeyRound, Menu, Settings2, Share2, Users } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Logo } from './components/Logo'
 import { Toaster } from './components/ui'
-import { proxyVersion } from './lib/api'
-import { useStore } from './lib/store'
-import { AccountsPage } from './pages/AccountsPage'
-import { ConfigPage } from './pages/ConfigPage'
-import { KeysPage } from './pages/KeysPage'
-import { QuotaPage } from './pages/QuotaPage'
-import { SharingPage } from './pages/SharingPage'
+import { getHealth, type Health } from './lib/usage'
 import { UsagePage } from './pages/UsagePage'
 
-const ROUTES = {
-  quota: { label: 'Quota', icon: Gauge, page: QuotaPage },
-  usage: { label: 'Usage', icon: ChartColumn, page: UsagePage },
-  accounts: { label: 'Accounts', icon: Users, page: AccountsPage },
-  keys: { label: 'API keys', icon: KeyRound, page: KeysPage },
-  sharing: { label: 'Sharing', icon: Share2, page: SharingPage },
-  config: { label: 'Config', icon: Settings2, page: ConfigPage },
-} as const
-type Route = keyof typeof ROUTES
+const HEALTH_EVERY_MS = 30e3
 
-const NAV: { section: string; routes: Route[] }[] = [
-  { section: 'Monitor', routes: ['quota', 'usage'] },
-  { section: 'Manage', routes: ['accounts', 'keys', 'sharing', 'config'] },
-]
+function CollectorStatus() {
+  const [health, setHealth] = useState<Health | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
 
-const routeFromHash = (): Route => {
-  const r = location.hash.replace(/^#\/?/, '')
-  return r in ROUTES ? (r as Route) : 'quota'
-}
-
-function useRoute(): Route {
-  const [route, setRoute] = useState(routeFromHash)
   useEffect(() => {
-    const onHash = () => setRoute(routeFromHash())
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    let alive = true
+    const check = async () => {
+      try {
+        const next = await getHealth()
+        if (!alive) return
+        setHealth(next)
+        setUnreachable(false)
+      } catch {
+        if (!alive) return
+        setUnreachable(true)
+      }
+    }
+    void check()
+    const timer = setInterval(check, HEALTH_EVERY_MS)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
   }, [])
-  return route
-}
 
-function Sidebar({ route, open, onClose }: { route: Route; open: boolean; onClose: () => void }) {
-  const { files, fatal, loaded } = useStore()
-  const on = files.filter((f) => !f.disabled).length
-  const counts: Partial<Record<Route, ReactNode>> = { accounts: loaded ? `${on}/${files.length}` : null }
-  const online = loaded && !fatal
+  if (unreachable) {
+    return (
+      <span className="status-pill mono" title="Cannot reach usage server">
+        <span className="dot bad" />
+        Server offline
+      </span>
+    )
+  }
+
+  if (!health) return null
+
+  const { connected, lastError } = health.collector
   return (
-    <aside className={open ? 'sidebar open' : 'sidebar'}>
-      <div className="brand">
-        <Logo />
-        CLIProxy
-      </div>
-      {NAV.map((group) => (
-        <nav key={group.section} aria-label={group.section}>
-          <div className="nav-section eyebrow">{group.section}</div>
-          {group.routes.map((r) => {
-            const { label, icon: Icon } = ROUTES[r]
-            return (
-              <a key={r} href={`#/${r}`} className="nav-link" aria-current={route === r ? 'page' : undefined} onClick={onClose}>
-                <Icon size={15} strokeWidth={1.75} />
-                {label}
-                {counts[r] && <span className="nav-count">{counts[r]}</span>}
-              </a>
-            )
-          })}
-        </nav>
-      ))}
-      {/* Quiet unless something is wrong. */}
-      <div className="sidebar-foot mono faint">
-        {loaded && !online ? <span className="error-text">Can’t reach the proxy</span> : proxyVersion && `CLIProxyAPI ${proxyVersion}`}
-      </div>
-    </aside>
+    <span
+      className="status-pill mono"
+      title={connected ? 'Subscribed to CLIProxyAPI usage stream' : (lastError ?? 'Collector disconnected')}
+    >
+      <span className={connected ? 'dot good' : 'dot warn'} />
+      {connected ? 'Live' : 'Disconnected'}
+    </span>
   )
 }
 
-// On phones the sidebar is a slide-out menu, opened from the top bar.
-function useMenu() {
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
-  return [open, setOpen] as const
-}
-
 export default function App() {
-  const route = useRoute()
-  const { fatal } = useStore()
-  const [menuOpen, setMenuOpen] = useMenu()
-  const Page = ROUTES[route].page
   return (
     <div className="shell">
-      <header className="topbar">
-        <button className="btn btn-ghost btn-icon" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
-          <Menu size={18} />
-        </button>
-        <Logo size={20} />
-        <span className="topbar-title">{ROUTES[route].label}</span>
-      </header>
-      {menuOpen && <div className="scrim" onClick={() => setMenuOpen(false)} />}
-      <Sidebar route={route} open={menuOpen} onClose={() => setMenuOpen(false)} />
-      <main className="content">
-        {fatal ? (
-          <div className="page">
-            <div className="empty">
-              <div className="error-text">Can’t reach the proxy</div>
-              <div className="mono">{fatal.message}</div>
-            </div>
+      <header className="header">
+        <div className="header-inner">
+          <div className="brand">
+            <Logo size={20} />
+            CLIProxy Usage
           </div>
-        ) : (
-          <Page />
-        )}
+          <CollectorStatus />
+        </div>
+      </header>
+      <main className="content">
+        <UsagePage />
       </main>
       <Toaster />
     </div>
