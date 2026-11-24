@@ -1,30 +1,19 @@
 # cliproxy-dashboard
 
-A web UI for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)'s management API: an alternative to the built-in management panel, plus a usage history that the proxy itself does not keep.
-
-<img width="1440" alt="Quota page: account quota windows and a timeline of when each resets" src="docs/quota.png" />
-
-## What it does
-
-| Page     | What you get |
-| -------- | ------------ |
-| Quota    | Claude and Codex account quota windows (5-hour and weekly) on a timeline, with pace against the reset |
-| Usage    | Cost and tokens by provider, model, machine, client key and day, priced from LiteLLM's public price table |
-| Accounts | Add Claude and Codex accounts through OAuth, enable, disable, or remove them |
-| API keys | Create, label and revoke client keys; optional one-command setup of Claude Code / Codex on another machine |
-| Config   | Edit `config.yaml` as a form or YAML, review a diff before saving; every save snapshots the previous file |
-| History  | `POST /history/search` across every connected machine's Claude Code, Codex and Pi transcripts (no page; for agents) |
+A lightweight usage and cost dashboard for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). It subscribes to CLIProxyAPI's usage stream, stores per-request token and API-equivalent cost history in SQLite, serves a T3 Code–style usage view, and exposes a JSON API for querying usage statistics.
 
 <img width="1440" alt="Usage page: cost by provider over 30 days and a breakdown by model" src="docs/usage.png" />
 
-<img width="1440" alt="API keys page: labeled client keys and the connect-a-machine form" src="docs/api-keys.png" />
+## What it does
 
-It is one Bun process: a Hono server that serves the built React app, bridges `/v0/management/*` to the proxy, and collects the proxy's usage records into SQLite.
+- **Usage & cost tracking**: Total spend and tokens by provider, model, day/hour, machine, and upstream account, priced from LiteLLM's public price table (with cache-read savings).
+- **JSON API**: Query computed usage summaries directly via `GET /api/usage?range=24h|7d|30d|90d|all&tz=<IANA timezone>` and collector status via `GET /api/health`.
+- **Single Bun process**: One Hono server collects CLIProxyAPI usage records into SQLite and serves both the API and the built React UI. No proxy management or config writes are exposed.
 
 ## Requirements
 
 - CLIProxyAPI **v7.1.18 or later** (first release with usage Pub/Sub). Tested against v8.0.36.
-- Remote management enabled on the proxy with a `secret-key`.
+- Remote management enabled on the proxy with a `secret-key` (used only to authenticate the usage Pub/Sub subscription).
 - Usage statistics enabled on the proxy (see below).
 - [Bun](https://bun.sh) 1.4+ and Node 22.12+ (for the build), or Docker.
 
@@ -43,11 +32,9 @@ On the machine running CLIProxyAPI:
 
    On pre-v8 configs the same keys sit at the top level.
 
-2. Clone, configure, build and run:
+2. Configure, build, and run:
 
    ```sh
-   git clone https://github.com/JarenKempton/cliproxy-dashboard.git
-   cd cliproxy-dashboard
    cp .env.example .env.local      # set CPA_MANAGEMENT_KEY, and CPA_TARGET if the proxy isn't on 127.0.0.1:8317
    npm ci
    npm run build
@@ -56,7 +43,18 @@ On the machine running CLIProxyAPI:
 
 3. Open <http://127.0.0.1:5174>.
 
-The server logs `[collector] subscribed to CLIProxyAPI usage` once it is receiving records. `/api/health` shows the same.
+The server logs `[collector] subscribed to CLIProxyAPI usage` once it is receiving records. `GET /api/health` shows the same.
+
+## API
+
+| Endpoint | Purpose |
+| -------- | ------- |
+| `GET /api/usage?range=30d&tz=UTC` | Aggregated cost, tokens, time series, and breakdowns by provider, model, machine, and account (`range`: `24h`, `7d`, `30d`, `90d`, `all`) |
+| `GET /api/health` | Collector connection status, price table timestamp, and Tailscale sync status |
+| `GET /api/devices` | Known client keys/IPs with resolved machine names and totals |
+| `PUT /api/devices/name` | Assign a custom machine name to a `key` or `ip` identity |
+| `DELETE /api/devices/name` | Clear a custom machine name |
+| `POST /api/import` | Import historical Claude Code / Codex usage transcripts prior to live collection |
 
 ## Configuration
 
@@ -64,16 +62,11 @@ All configuration is environment variables, read from `.env.local` in the workin
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `CPA_MANAGEMENT_KEY` | required | Plaintext management key (the `remote-management.secret-key` you log in to the built-in panel with) |
-| `CPA_TARGET` | `http://127.0.0.1:8317` | CLIProxyAPI base URL; the usage collector connects to the same host and port |
-| `CPA_ALLOW_WRITES` | unset | `1` forwards every management write, not only the dashboard's own |
-| `USAGE_SERVER_HOST` | `127.0.0.1` | Dashboard listen address |
-| `USAGE_SERVER_PORT` | `5174` | Dashboard listen port |
-| `LAN_PORT` | `0` (off) | Local-network listener for connecting other machines and importing their history; binds `0.0.0.0` |
+| `CPA_MANAGEMENT_KEY` | required | Plaintext management key (used only to subscribe to the usage queue) |
+| `CPA_TARGET` | `http://127.0.0.1:8317` | CLIProxyAPI base URL |
+| `USAGE_SERVER_HOST` | `127.0.0.1` | Server listen address |
+| `USAGE_SERVER_PORT` | `5174` | Server listen port |
 | `TAILSCALE_BIN` | auto | Path to the `tailscale` CLI, used to name machines by their tailnet name |
-| `TAILNET_DASHBOARD_PORT` | `5443` | Port `tailscale serve` exposes the dashboard on, for connect commands |
-| `TAILNET_DASHBOARD_URL` | derived | Dashboard URL handed to tailnet machines, when it differs from the derived one |
-| `TAILNET_PROXY_URL` | derived | Proxy URL handed to tailnet machines, when it differs from the derived one |
 | `USAGE_DB_PATH` | `data/usage.db` | SQLite database |
 | `PRICE_CACHE_PATH` | `data/litellm-prices.json` | Cached LiteLLM price table |
 | `DASHBOARD_DIST` | `dist` | Built frontend to serve |
@@ -82,7 +75,7 @@ All configuration is environment variables, read from `.env.local` in the workin
 
 ### Bun, as a service
 
-Run `bun server/src/index.ts` from the repo directory under systemd, launchd, or similar. Keep `data/` and `.backups/` on persistent storage.
+Run `bun server/src/index.ts` from the repo directory under systemd, launchd, or similar. Keep `data/` on persistent storage.
 
 ### Docker
 
@@ -92,41 +85,29 @@ docker run -d --name cliproxy-dashboard --restart unless-stopped \
   --network host \
   --env-file .env.local \
   -v "$PWD/data:/app/data" \
-  -v "$PWD/.backups:/app/.backups" \
   cliproxy-dashboard
 ```
 
-Host networking keeps the default `127.0.0.1` binding meaningful and lets the container reach a proxy on the host's loopback. It is Linux-only; elsewhere, publish the port to loopback (`-p 127.0.0.1:5174:5174`), set `USAGE_SERVER_HOST=0.0.0.0` inside the container, and point `CPA_TARGET` at an address the container can reach.
-
 ### Tailscale
 
-[`deploy/compose.yaml`](deploy/compose.yaml) runs the dashboard next to a Tailscale sidecar that serves it over HTTPS on your tailnet ([`deploy/serve.json`](deploy/serve.json)). It expects `DATA` to point at a directory holding `env`, `ts-authkey` and `serve.json`, and runs the image named by `IMAGE` (build your own with `docker build`). [`deploy/hook.ts`](deploy/hook.ts) is an optional signed webhook for redeploying a TrueNAS app from CI (`image.yml` calls it only when the `DEPLOY_HOOK_URL` repository variable is set).
+[`deploy/compose.yaml`](deploy/compose.yaml) runs the dashboard next to a Tailscale sidecar that serves it over HTTPS on your tailnet ([`deploy/serve.json`](deploy/serve.json)).
 
 ## Security
 
-- **The dashboard has no login.** Anyone who can reach it can do what the management key allows. It binds to `127.0.0.1` by default; to reach it from elsewhere, use an SSH tunnel, `tailscale serve`, or a reverse proxy with its own authentication. Do not expose it directly to a network.
-- The management key stays server-side. The bridge injects it into requests to the proxy; it is never sent to the browser.
-- Writes are allowlisted to the dashboard's own actions unless `CPA_ALLOW_WRITES=1`. GETs with side effects (draining `/usage-queue`, provider auth URLs other than Claude and Codex) are blocked.
-- After a single `401` from the proxy, the bridge stops forwarding until restart, because CLIProxyAPI bans an IP for about 30 minutes after 5 failed key attempts.
-- Every config write first snapshots `config.yaml` into `.backups/` (last 50, mode `600`). Those snapshots contain your proxy's secrets; treat the directory accordingly.
-- `LAN_PORT` opens a listener on all interfaces. It serves only the connect scripts, one-time connect codes, and a history import and transcript push that require a valid proxy API key. Leave it at `0` unless you need it.
-- Connected machines send their full transcripts, which can contain anything a session printed. They are stored as sent under `HISTORY_DIR`; protect it like the backups. Search and session results come only from `history.db`, where common secret formats (API keys, tokens, JWTs, private keys, `*_KEY=`/`*_TOKEN=` lines, bearer headers) are removed before indexing.
+- **The dashboard has no login.** Anyone who can reach it can read usage and device data, rename machines (`PUT`/`DELETE /api/devices/name`), and import historical transcripts (`POST /api/import`). It binds to `127.0.0.1` by default; to reach it from elsewhere, use an SSH tunnel, `tailscale serve` with Tailnet ACLs, or a reverse proxy with its own authentication. Do not expose it directly to an untrusted network.
+- `CPA_MANAGEMENT_KEY` stays server-side and is used only to authenticate the usage Pub/Sub subscription; no CLIProxyAPI management endpoints are proxied.
 
 ## Limitations
 
-- **Single consumer of usage records.** CLIProxyAPI deletes a usage record once it is read, so the dashboard must be the only thing reading the usage queue. Records produced while the dashboard is down are kept for at most `redis-usage-queue-retention-seconds` (max 3600).
-- Costs are estimates from public API list prices, not what any account is billed. Models missing from LiteLLM's table show as unpriced.
-- Quota windows are shown for Claude and Codex OAuth accounts only. Other providers appear on the Accounts page without quota.
-- In-browser account login supports Claude and Codex only; add other providers through CLIProxyAPI directly.
-- Connecting another machine from the API keys page needs Tailscale or `LAN_PORT`; with neither, the button stays disabled.
-- No multi-user support or roles.
+- **Single consumer of usage records.** CLIProxyAPI deletes a usage record once it is read, so this server must be the only consumer reading the usage queue. Records produced while the server is down are kept for at most `redis-usage-queue-retention-seconds` (max 3600).
+- Costs are API-equivalent estimates from LiteLLM's public list prices, not actual subscription billing. Models missing from LiteLLM's table show as unpriced unless overridden in the `price_overrides` table.
 
 ## Development
 
 ```sh
 npm ci
-npm run server        # API, management bridge and collector on 127.0.0.1:5174
-npm run dev           # Vite on 127.0.0.1:5173, proxying to the server
+npm run server        # Usage API and collector on 127.0.0.1:5174
+npm run dev           # Vite on 127.0.0.1:5173, proxying /api to the server
 ```
 
 | Command | Does |
@@ -137,21 +118,6 @@ npm run dev           # Vite on 127.0.0.1:5173, proxying to the server
 | `bun test` | Tests |
 | `npm run db:generate` | Generate a migration after editing `server/src/db/schema.ts` |
 
-Usage groups by the served model's vendor (OpenAI, Anthropic, …) regardless of client or proxy endpoint, falling back to the upstream provider for opaque model names. A session that uses several providers counts in each provider row and once in the overall total.
-
-### History search
-
-Connecting a machine (or running the import script with a key dedicated to it) also installs a timer (systemd user timer on Linux, launchd on macOS) that sends new transcript bytes every minute to `POST /history/push`. The machine is the one the proxy key is dedicated to. Raw files are stored as sent under `HISTORY_DIR/<machine>/`, laid out like a home folder.
-
-The `indexer` service in `deploy/compose.yaml` runs the same image with `bun server/src/history/indexer.ts`. It reads every machine folder with the pinned [Quench](https://github.com/JarenKempton/quench) (`quench runs --all --json --history …`), removes secrets, and adds closed runs to `history.db` with a full-text index and local CPU embeddings (bge-small-en-v1.5). `history.db` records the Quench version and model; it is rebuilt from `HISTORY_DIR` when either changes or when it is deleted.
-
-```sh
-curl -s https://<dashboard>/history/search -d '{"q": "earlier attempts to make CI faster", "repo": "business-metrics", "limit": 5, "session": "<your session id>"}'
-curl -s https://<dashboard>/history/sessions/<session id>
-```
-
-Search merges keyword (BM25) and vector results with equal-weight reciprocal rank fusion, collapses duplicate prompts, leaves out `session`, groups runs by session, and asks [Jev](https://typesafe.ai) to rerank the top 25 when `TYPESAFE_API_KEY` is set. If Jev fails or takes over 350 ms, the merged order is returned with a `warning`.
-
 ### Importing earlier history
 
 Claude Code and Codex transcripts from before the dashboard started collecting can be imported, so usage charts don't start empty:
@@ -160,6 +126,8 @@ Claude Code and Codex transcripts from before the dashboard started collecting c
 bun server/src/import/local.ts                         # this machine's ~/.claude and ~/.codex
 bun server/src/import/file.ts export.json --ip <ip>    # an export made on another machine
 ```
+
+`export.json` has the shape `{ "files": [{ "tool": "claude-code" | "codex", "lines": ["<raw jsonl line>", ...] }] }`.
 
 Both are safe to re-run; only history from before live collection began is imported.
 

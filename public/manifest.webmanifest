@@ -1,7 +1,7 @@
 {
-  "name": "CLIProxy",
-  "short_name": "CLIProxy",
-  "start_url": "/#/quota",
+  "name": "CLIProxy Usage",
+  "short_name": "CLIProxy Usage",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",

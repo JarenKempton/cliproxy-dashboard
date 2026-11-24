@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { openDb } from '../db/client'
 import { requests } from '../db/schema'
-import { accountHours, usageSummary } from './summary'
+import { usageSummary } from './summary'
 
 const now = Date.UTC(2026, 9, 14, 12, 30)
 
@@ -103,26 +103,5 @@ describe('usage windows', () => {
     expect(summary.series).toHaveLength(6 * 24 + 7)
     expect(summary.totals.records).toBe(3)
     expect(summary.series.find((b) => b.key === Date.UTC(2026, 9, 14, 9))?.providers.openai?.costMicros).toBe(2000)
-  })
-})
-
-describe('account hours', () => {
-  test('sums proxy cost per provider, account label and hour', () => {
-    const hour = Math.floor(now / 3600e3) * 3600e3
-    const db = fixture([
-      { provider: 'claude', accountLabel: 'a@x', occurredAt: new Date(hour + 60e3), costMicros: 2000 },
-      { provider: 'claude', accountLabel: 'a@x', accountRef: 'new-index', occurredAt: new Date(hour + 120e3), costMicros: 3000 },
-      { provider: 'codex', accountLabel: 'a@x', occurredAt: new Date(hour + 60e3) },
-      { provider: 'claude', accountLabel: 'a@x', occurredAt: new Date(hour - 3600e3 + 60e3) },
-      { provider: 'claude', occurredAt: new Date(hour + 60e3) },
-      { provider: 'claude', accountLabel: 'a@x', source: 'claude-code-log', occurredAt: new Date(hour + 60e3) },
-      { provider: 'claude', accountLabel: 'a@x', occurredAt: new Date(hour - 86400e3) },
-    ])
-    const rows = accountHours(db, hour - 7200e3)
-    expect(rows.map((r) => [r.provider, r.account, r.hour - hour, r.costMicros]).sort()).toEqual([
-      ['claude', 'a@x', -3600e3, 1000],
-      ['claude', 'a@x', 0, 5000],
-      ['codex', 'a@x', 0, 1000],
-    ])
   })
 })

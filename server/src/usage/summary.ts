@@ -10,7 +10,7 @@
 //   "all" starts on the day of the earliest stored request.
 // - 24h and 7d are bucketed by hour, longer ranges by day.
 
-import { and, eq, gte, inArray, isNotNull, min, sql } from 'drizzle-orm'
+import { and, eq, gte, isNotNull, min, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { Db } from '../db/client'
 import { machineIdentities, machines, requests, tailnetDevices } from '../db/schema'
@@ -255,65 +255,10 @@ export function usageSummary(db: Db, range: Range, timeZone: string, now = Date.
 
 export type UsageSummary = ReturnType<typeof usageSummary>
 
-// Proxy cost per upstream account and hour, keyed by provider and account
-// label: re-adding an account gives it a new auth index but keeps its label.
-// peerMicros is the part sent with the given proxy keys (peers borrowing).
-export function accountHours(db: Db, sinceMs: number, peerKeyHashes: string[] = []) {
-  const hour = sql<number>`(${requests.occurredAt} / ${HOUR}) * ${HOUR}`
-  const provider = sql<string>`lower(${requests.provider})`
-  const byPeers = peerKeyHashes.length
-    ? sql<number>`coalesce(sum(case when ${inArray(requests.clientKeyHash, peerKeyHashes)} then ${requests.costMicros} end), 0)`
-    : sql<number>`0`
-  return db
-    .select({
-      provider,
-      account: sql<string>`${requests.accountLabel}`,
-      hour,
-      costMicros: sql<number>`coalesce(sum(${requests.costMicros}), 0)`,
-      peerMicros: byPeers,
-    })
-    .from(requests)
-    .where(and(eq(requests.source, 'cliproxy'), gte(requests.occurredAt, new Date(sinceMs)), isNotNull(requests.accountLabel)))
-    .groupBy(provider, requests.accountLabel, hour)
-    .all()
-}
-
 const emptyPoint = () => ({ costMicros: 0, tokens: 0 })
 
 function getOr<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   let value = map.get(key)
   if (value === undefined) map.set(key, (value = create()))
   return value
-}
-
-// --- Live activity -------------------------------------------------------------------
-
-// Which accounts served requests in the last few minutes, and for which machines.
-export function recentActivity(db: Db, minutes: number, now = Date.now()) {
-  const rows = db
-    .select({
-      accountRef: requests.accountRef,
-      machine: machine.name,
-      requests: sql<number>`count(*)`,
-      lastAt: sql<number>`max(${requests.occurredAt})`,
-    })
-    .from(requests)
-    .leftJoin(byKey, and(eq(byKey.kind, 'key'), eq(byKey.value, requests.clientKeyHash)))
-    .leftJoin(keyMachine, eq(keyMachine.id, byKey.machineId))
-    .leftJoin(byIp, and(eq(byIp.kind, 'ip'), eq(byIp.value, requests.clientIp)))
-    .leftJoin(ipMachine, eq(ipMachine.id, byIp.machineId))
-    .leftJoin(tailnetDevices, eq(tailnetDevices.ip, requests.clientIp))
-    .where(and(gte(requests.occurredAt, new Date(now - minutes * 60e3)), isNotNull(requests.accountRef)))
-    .groupBy(requests.accountRef, machine.name)
-    .all()
-
-  const accounts = new Map<string, { accountRef: string; requests: number; lastAt: number; machines: { name: string; requests: number }[] }>()
-  for (const row of rows) {
-    const a = getOr(accounts, row.accountRef!, () => ({ accountRef: row.accountRef!, requests: 0, lastAt: 0, machines: [] }))
-    a.requests += row.requests
-    a.lastAt = Math.max(a.lastAt, row.lastAt)
-    a.machines.push({ name: row.machine, requests: row.requests })
-  }
-  for (const a of accounts.values()) a.machines.sort((x, y) => y.requests - x.requests)
-  return { minutes, accounts: [...accounts.values()] }
 }

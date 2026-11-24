@@ -20,8 +20,8 @@ jobs:
         with:
           push: true
           tags: |
-            ghcr.io/jarenkempton/cliproxy-dashboard:main
-            ghcr.io/jarenkempton/cliproxy-dashboard:${{ github.sha }}
+            ghcr.io/${{ github.repository }}:main
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
       - name: Deploy
         if: vars.DEPLOY_HOOK_URL != ''
         env:
