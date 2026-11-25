@@ -43,41 +43,63 @@ export type CliproxyRecord = {
 
 type RequestRow = typeof requests.$inferInsert
 
+const strOrNull = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : null)
+const intOrNull = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : null)
+
 // Control messages on the usage stream carry no request (e.g. {"support_refresh":true}).
 export function isUsageRecord(value: unknown): value is CliproxyRecord {
-  const r = value as CliproxyRecord
-  return typeof r?.timestamp === 'string' && typeof r?.model === 'string' && typeof r?.request_id === 'string'
+  if (!value || typeof value !== 'object') return false
+  const r = value as Partial<CliproxyRecord>
+  const hasId =
+    (typeof r.execution_id === 'string' && r.execution_id.length > 0) ||
+    (typeof r.request_id === 'string' && r.request_id.length > 0)
+  return (
+    typeof r.timestamp === 'string' &&
+    Number.isFinite(Date.parse(r.timestamp)) &&
+    typeof r.model === 'string' &&
+    r.model.length > 0 &&
+    hasId
+  )
 }
 
 export function toRequestRow(r: CliproxyRecord, prices: PriceBook): RequestRow {
+  const occurredMs = Date.parse(r.timestamp)
+  if (!Number.isFinite(occurredMs)) {
+    throw new Error(`Invalid usage record timestamp: ${JSON.stringify(r.timestamp)}`)
+  }
+  const idPart = strOrNull(r.execution_id) || strOrNull(r.request_id)
+  if (!idPart) {
+    throw new Error('Usage record missing execution_id and request_id')
+  }
   const tokens = tokensOf(r)
-  const model = r.response_model || r.model
+  const model = strOrNull(r.response_model) || r.model
   const price = prices.lookup(model)
+  const userAgent = strOrNull(r.user_agent)
 
   return {
-    id: `cliproxy:${r.execution_id || r.request_id}:${r.timestamp}`,
+    id: `cliproxy:${idPart}:${r.timestamp}`,
     source: 'cliproxy',
-    occurredAt: new Date(r.timestamp),
+    occurredAt: new Date(occurredMs),
     receivedAt: new Date(),
 
-    provider: r.provider,
+    provider: typeof r.provider === 'string' ? r.provider : '',
     model,
-    requestedModel: r.alias || null,
+    requestedModel: strOrNull(r.alias),
 
-    accountRef: r.auth_index || null,
-    accountLabel: r.source || null,
+    accountRef: strOrNull(r.auth_index),
+    accountLabel: strOrNull(r.source),
 
-    clientKeyHash: r.api_key ? hashKey(r.api_key) : null,
+    clientKeyHash: typeof r.api_key === 'string' && r.api_key.length > 0 ? hashKey(r.api_key) : null,
     clientIp: clientIpOf(r),
-    userAgent: r.user_agent || null,
-    tool: toolOf(r.user_agent),
-    sessionId: r.session_id || null,
-    endpoint: r.endpoint || null,
+    userAgent,
+    tool: toolOf(userAgent ?? undefined),
+    sessionId: strOrNull(r.session_id),
+    endpoint: strOrNull(r.endpoint),
 
-    failed: r.failed,
-    statusCode: r.fail?.status_code ?? null,
-    latencyMs: r.latency_ms ?? null,
-    timeToFirstTokenMs: r.ttft_ms ?? null,
+    failed: Boolean(r.failed),
+    statusCode: intOrNull(r.fail?.status_code),
+    latencyMs: intOrNull(r.latency_ms),
+    timeToFirstTokenMs: intOrNull(r.ttft_ms),
 
     inputTokens: tokens.input,
     cacheReadTokens: tokens.cacheRead,
@@ -95,21 +117,21 @@ function tokensOf(r: CliproxyRecord) {
   const b = r.token_breakdown
   if (b?.input && b.output) {
     return {
-      input: b.input.uncached_tokens ?? null,
-      cacheRead: b.input.cache_read_tokens ?? null,
-      cacheWrite: b.input.cache_write_tokens ?? null,
-      output: b.output.total_tokens ?? null,
-      reasoning: b.output.reasoning_tokens ?? null,
+      input: intOrNull(b.input.uncached_tokens),
+      cacheRead: intOrNull(b.input.cache_read_tokens),
+      cacheWrite: intOrNull(b.input.cache_write_tokens),
+      output: intOrNull(b.output.total_tokens),
+      reasoning: intOrNull(b.output.reasoning_tokens),
     }
   }
   // Older records: input_tokens excludes cache tokens for Claude; best effort.
   const t = r.tokens ?? {}
   return {
-    input: t.input_tokens ?? null,
-    cacheRead: t.cache_read_tokens ?? null,
-    cacheWrite: t.cache_creation_tokens ?? null,
-    output: t.output_tokens ?? null,
-    reasoning: t.reasoning_tokens ?? null,
+    input: intOrNull(t.input_tokens),
+    cacheRead: intOrNull(t.cache_read_tokens),
+    cacheWrite: intOrNull(t.cache_creation_tokens),
+    output: intOrNull(t.output_tokens),
+    reasoning: intOrNull(t.reasoning_tokens),
   }
 }
 
@@ -121,8 +143,8 @@ export function hashKey(key: string) {
 // Requests forwarded by `tailscale serve` arrive from 127.0.0.1 with the
 // real tailnet address in X-Forwarded-For.
 function clientIpOf(r: CliproxyRecord) {
-  const forwarded = r.x_forwarded_for?.split(',')[0]?.trim()
-  return forwarded || r.client_ip || null
+  const forwarded = typeof r.x_forwarded_for === 'string' ? r.x_forwarded_for.split(',')[0]?.trim() : undefined
+  return forwarded || strOrNull(r.client_ip)
 }
 
 function toolOf(userAgent?: string) {
